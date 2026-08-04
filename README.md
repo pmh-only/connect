@@ -79,3 +79,15 @@ Some Android builds treat SMS access as a restricted sideload permission. For a 
 ```bash
 adb install --grant-all-runtime-permissions --whitelist-restricted-permissions app/build/outputs/apk/debug/app-debug.apk
 ```
+
+## GitHub Actions
+
+`.github/workflows/server-container.yml` builds the Go server on separate native `amd64` and `arm64` GitHub-hosted runners, pushes each architecture by digest, and publishes one multi-architecture image to `ghcr.io/<owner>/<repository>`. Main receives the `latest` tag and every build receives `sha-<commit>`.
+
+`.github/workflows/android-release.yml` runs for every commit on `main`, uses GitHub Actions `GITHUB_RUN_NUMBER` for the `v1.N` tag, decrypts `android.keystore.gpg`, builds a signed release APK, verifies its signature, and uploads the APK plus SHA-256 file to GitHub Releases. Re-running the same workflow run reuses its version number.
+
+Add the encrypted `android.keystore.gpg` file at the repository root and configure this Actions secret:
+
+- `ANDROID_KEYSTORE_GPG_PASSWORD`: password used to encrypt `android.keystore.gpg`.
+
+The signing keystore must contain alias `android`. Its keystore and key passwords are both `123456`, as configured in `app/build.gradle.kts`. The GPG password must be different. The plaintext `android.keystore` remains ignored and is deleted from the runner after every release attempt.

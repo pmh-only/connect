@@ -1,4 +1,4 @@
-package com.connect.app
+package codes.pmh.connect
 
 import android.content.BroadcastReceiver
 import android.content.Context

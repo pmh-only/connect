@@ -1,4 +1,4 @@
-package com.connect.app
+package codes.pmh.connect
 
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification

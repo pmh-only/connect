@@ -1,0 +1,95 @@
+name: Android Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 37
+        shell: bash
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+
+      - id: version
+        name: Resolve release version
+        shell: bash
+        run: |
+          echo "tag=v1.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "name=1.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Decrypt signing keystore
+        shell: bash
+        env:
+          KEYSTORE_GPG_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_GPG_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_GPG_PASSWORD"
+          test -f android.keystore.gpg
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "$KEYSTORE_GPG_PASSWORD" \
+            --output android.keystore \
+            --decrypt android.keystore.gpg
+          chmod 600 android.keystore
+          keytool -list \
+            -keystore android.keystore \
+            -storepass 123456 \
+            -alias android
+
+      - name: Build signed release APK
+        shell: bash
+        run: |
+          ./gradlew clean assembleRelease \
+            -PversionCode=${{ steps.version.outputs.code }} \
+            -PversionName=${{ steps.version.outputs.name }}
+
+      - name: Verify and prepare APK
+        shell: bash
+        run: |
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose \
+            app/build/outputs/apk/release/app-release.apk
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk \
+            "dist/connect-${{ steps.version.outputs.tag }}.apk"
+          sha256sum "dist/connect-${{ steps.version.outputs.tag }}.apk" \
+            > "dist/connect-${{ steps.version.outputs.tag }}.apk.sha256"
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --target "$GITHUB_SHA" \
+              --title "Connect $TAG" \
+              --generate-notes
+          fi
+
+      - name: Remove decrypted keystore
+        if: always()
+        shell: bash
+        run: rm -f android.keystore

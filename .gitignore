@@ -10,3 +10,4 @@ captures/
 server/.env
 server/connect-server
 server/data/
+android.keystore

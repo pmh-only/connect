@@ -1,4 +1,4 @@
-package com.connect.app
+package codes.pmh.connect
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec

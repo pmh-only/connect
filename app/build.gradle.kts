@@ -4,23 +4,33 @@ plugins {
 }
 
 android {
-    namespace = "com.connect.app"
+    namespace = "codes.pmh.connect"
     buildToolsVersion = "37.0.0"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.connect.app"
+        applicationId = "codes.pmh.connect"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = providers.gradleProperty("versionCode").orNull?.toIntOrNull() ?: 1
+        versionName = providers.gradleProperty("versionName").orNull ?: "1.0"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file("android.keystore")
+            storePassword = "123456"
+            keyAlias = "android"
+            keyPassword = "123456"
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

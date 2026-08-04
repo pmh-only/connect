@@ -1,0 +1,5 @@
+.env
+connect-server
+data/
+Dockerfile*
+README*
