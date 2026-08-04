@@ -101,11 +101,15 @@ class MainActivity : ComponentActivity() {
     ) { finishAccessFlow() }
 
     private var accessState by mutableStateOf(AccessState())
+    private var lastCrash by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        ConnectService.start(this)
+        lastCrash = CrashLogStore.read(this)
+        if (!ConnectService.isRunning.value) {
+            ConnectService.cancelWatchdog(this)
+        }
         val uploadConfig = UploadConfigStore.load(this)
 
         setContent {
@@ -119,12 +123,17 @@ class MainActivity : ComponentActivity() {
                     accessState = accessState,
                     initialUploadConfig = uploadConfig,
                     uploadStatus = uploadStatus,
-                    onEnsureRunning = { ConnectService.start(this) },
+                    lastCrash = lastCrash,
+                    onEnsureRunning = { ConnectService.start(this, userInitiated = true) },
                     onGrantAccess = { requestAllAccess() },
+                    onClearCrash = {
+                        CrashLogStore.clear(this)
+                        lastCrash = null
+                    },
                     onSaveUploadConfig = { endpoint, token ->
                         UploadConfigStore.save(this, endpoint, token).fold(
                             onSuccess = {
-                                ConnectService.start(this)
+                                ConnectService.start(this, userInitiated = true)
                                 null
                             },
                             onFailure = { it.message ?: "Could not save upload settings" },
@@ -139,7 +148,6 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         updateAccessState()
-        ConnectService.scheduleWatchdog(this)
     }
 
     private fun requestAllAccess() {
@@ -296,7 +304,7 @@ class MainActivity : ComponentActivity() {
 
     private fun finishAccessFlow() {
         updateAccessState()
-        ConnectService.start(this)
+        ConnectService.start(this, userInitiated = true)
         lifecycleScope.launch {
             CollectedDataRepository.refresh(this@MainActivity)
         }
@@ -409,8 +417,10 @@ private fun ConnectScreen(
     accessState: AccessState,
     initialUploadConfig: UploadConfig,
     uploadStatus: UploadStatus,
+    lastCrash: String?,
     onEnsureRunning: () -> Unit,
     onGrantAccess: () -> Unit,
+    onClearCrash: () -> Unit,
     onSaveUploadConfig: (String, String) -> String?,
 ) {
     val allAccessReady = accessState.batteryExempt &&
@@ -466,6 +476,10 @@ private fun ConnectScreen(
 
             Spacer(Modifier.height(32.dp))
             StatusCard(isRunning)
+            if (lastCrash != null) {
+                Spacer(Modifier.height(12.dp))
+                CrashReportCard(lastCrash, onClearCrash)
+            }
             Spacer(Modifier.height(12.dp))
             ReliabilityCard(
                 batteryExempt = accessState.batteryExempt,
@@ -529,6 +543,42 @@ private fun ConnectScreen(
                 lineHeight = 17.sp,
                 textAlign = TextAlign.Center,
             )
+        }
+    }
+}
+
+@Composable
+private fun CrashReportCard(report: String, onClear: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF3A1820)),
+        border = BorderStroke(1.dp, Color(0xFF7F3344)),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 17.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.last_crash),
+                color = Color(0xFFFFB4C0),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+            )
+            Text(
+                text = report.take(2_000),
+                color = Mist,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+            OutlinedButton(
+                onClick = onClear,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.clear_crash_report))
+            }
         }
     }
 }
@@ -934,8 +984,10 @@ private fun ConnectScreenPreview() {
                 state = UploadState.SUCCESS,
                 message = "Last upload succeeded",
             ),
+            lastCrash = null,
             onEnsureRunning = {},
             onGrantAccess = {},
+            onClearCrash = {},
             onSaveUploadConfig = { _, _ -> null },
         )
     }

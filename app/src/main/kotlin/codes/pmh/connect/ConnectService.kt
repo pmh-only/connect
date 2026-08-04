@@ -25,6 +25,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Telephony
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -256,24 +257,26 @@ class ConnectService : Service() {
         private const val COLLECTION_INTERVAL_MS = 5 * 60 * 1000L
         private const val LOCATION_INTERVAL_MS = 60 * 1000L
         private const val LOCATION_MIN_DISTANCE_METERS = 25f
+        private const val PREFERENCES_NAME = "connect_service"
+        private const val ENABLED_KEY = "enabled"
 
         private val _isRunning = MutableStateFlow(false)
         val isRunning = _isRunning.asStateFlow()
 
-        fun start(context: Context) {
+        fun start(context: Context, userInitiated: Boolean = false) {
+            if (userInitiated) {
+                preferences(context).edit(commit = true) { putBoolean(ENABLED_KEY, true) }
+            }
+            if (!isEnabled(context)) return
             runCatching {
                 context.startForegroundService(Intent(context, ConnectService::class.java))
             }
         }
 
         fun scheduleWatchdog(context: Context) {
+            if (!isEnabled(context)) return
             val alarmManager = context.getSystemService(AlarmManager::class.java)
-            val watchdogIntent = PendingIntent.getBroadcast(
-                context,
-                WATCHDOG_REQUEST_CODE,
-                Intent(context, WatchdogReceiver::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
+            val watchdogIntent = watchdogIntent(context, PendingIntent.FLAG_UPDATE_CURRENT)
             val triggerAt = SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL_MS
 
             val canScheduleExactly = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
@@ -301,5 +304,31 @@ class ConnectService : Service() {
                 )
             }
         }
+
+        fun cancelWatchdog(context: Context) {
+            val existing = PendingIntent.getBroadcast(
+                context,
+                WATCHDOG_REQUEST_CODE,
+                Intent(context, WatchdogReceiver::class.java),
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+            ) ?: return
+            context.getSystemService(AlarmManager::class.java).cancel(existing)
+            existing.cancel()
+        }
+
+        private fun watchdogIntent(context: Context, flags: Int): PendingIntent =
+            PendingIntent.getBroadcast(
+                context,
+                WATCHDOG_REQUEST_CODE,
+                Intent(context, WatchdogReceiver::class.java),
+                flags or PendingIntent.FLAG_IMMUTABLE,
+            )
+
+        private fun isEnabled(context: Context): Boolean = preferences(context)
+            .getBoolean(ENABLED_KEY, false)
+
+        private fun preferences(context: Context) = context
+            .createDeviceProtectedStorageContext()
+            .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
     }
 }

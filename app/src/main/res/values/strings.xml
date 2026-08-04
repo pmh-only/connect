@@ -5,6 +5,8 @@
     <string name="main_description">Connect locally collects authorized health activity, SMS, notifications, location, and battery status while running in the background.</string>
     <string name="service_active">Service active</string>
     <string name="service_starting">Service starting</string>
+    <string name="last_crash">LAST CRASH REPORT</string>
+    <string name="clear_crash_report">Clear crash report</string>
     <string name="boot_enabled">STARTS ON BOOT</string>
     <string name="ensure_running">Ensure service is running</string>
     <string name="grant_all_access">Set up data and reliability access</string>
