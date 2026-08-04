@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Connect</string>
+    <string name="main_title">Your phone stays connected.</string>
+    <string name="main_description">Connect locally collects authorized health activity, SMS, notifications, location, and battery status while running in the background.</string>
+    <string name="service_active">Service active</string>
+    <string name="service_starting">Service starting</string>
+    <string name="boot_enabled">STARTS ON BOOT</string>
+    <string name="ensure_running">Ensure service is running</string>
+    <string name="grant_all_access">Grant data and reliability access</string>
+    <string name="all_access_enabled">Data and reliability access enabled</string>
+    <string name="reliability_access">RELIABILITY ACCESS</string>
+    <string name="battery_unrestricted">Battery unrestricted</string>
+    <string name="exact_alarm_watchdog">Exact-alarm watchdog</string>
+    <string name="permission_on">ON</string>
+    <string name="permission_needed">NEEDED</string>
+    <string name="permission_unavailable">N/A</string>
+    <string name="data_access">DATA ACCESS</string>
+    <string name="sms_access">SMS messages</string>
+    <string name="health_connect_access">Health Connect activity</string>
+    <string name="health_connect_unavailable">Health Connect unavailable</string>
+    <string name="notification_access">Android notifications</string>
+    <string name="location_access">Background location</string>
+    <string name="local_collection">LOCAL COLLECTION</string>
+    <string name="health_activity">Health activity</string>
+    <string name="sms_messages">SMS messages</string>
+    <string name="android_notifications">Notifications</string>
+    <string name="battery_status">Battery</string>
+    <string name="location_status">Location</string>
+    <plurals name="steps_summary">
+        <item quantity="one">%1$d step today</item>
+        <item quantity="other">%1$d steps today</item>
+    </plurals>
+    <plurals name="items_recent">
+        <item quantity="one">%1$d recent</item>
+        <item quantity="other">%1$d recent</item>
+    </plurals>
+    <string name="battery_summary">%1$d%%</string>
+    <string name="battery_charging_summary">%1$d%% charging</string>
+    <string name="location_summary">%1$.5f, %2$.5f</string>
+    <string name="waiting_for_data">Waiting</string>
+    <string name="system_limitation">Force stop disables every restart mechanism until Connect is opened again.</string>
+    <string name="service_channel_name">Persistent connection</string>
+    <string name="service_channel_description">Shows when Connect is collecting authorized data in the background</string>
+    <string name="service_notification_title">Connect is active</string>
+    <string name="service_notification_text">Health, SMS, notification, location, and battery collection is active</string>
+    <string name="notification_listener_name">Connect notification collection</string>
+</resources>
