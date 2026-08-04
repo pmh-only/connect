@@ -30,6 +30,7 @@ object DataUploader {
     private const val CONNECT_TIMEOUT_MS = 15_000
     private const val READ_TIMEOUT_MS = 30_000
     private const val MAX_TEXT_LENGTH = 8_192
+    private const val MAX_UPLOAD_ITEMS = 100
 
     private val mutex = Mutex()
     private val _status = MutableStateFlow(UploadStatus())
@@ -77,7 +78,14 @@ object DataUploader {
             connection.outputStream.use { it.write(payload) }
             val responseCode = connection.responseCode
             if (responseCode !in 200..299) {
-                throw IllegalStateException("Server returned HTTP $responseCode")
+                val detail = connection.errorStream
+                    ?.bufferedReader()
+                    ?.use { it.readLine() }
+                    ?.trim()
+                    ?.take(512)
+                    .orEmpty()
+                val suffix = if (detail.isEmpty()) "" else ": $detail"
+                throw IllegalStateException("Server returned HTTP $responseCode$suffix")
             }
         } finally {
             connection.disconnect()
@@ -98,7 +106,7 @@ object DataUploader {
             }
         } ?: JSONObject.NULL)
         put("smsMessages", JSONArray().apply {
-            smsMessages.forEach { message ->
+            smsMessages.take(MAX_UPLOAD_ITEMS).forEach { message ->
                 put(JSONObject().apply {
                     put("id", message.id)
                     put("address", message.address.take(512))
@@ -109,7 +117,7 @@ object DataUploader {
             }
         })
         put("notifications", JSONArray().apply {
-            notifications.forEach { notification ->
+            notifications.take(MAX_UPLOAD_ITEMS).forEach { notification ->
                 put(JSONObject().apply {
                     put("key", notification.key.take(1_024))
                     put("packageName", notification.packageName.take(512))

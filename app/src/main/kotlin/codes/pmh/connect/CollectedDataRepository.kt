@@ -226,7 +226,7 @@ object CollectedDataRepository {
                 val bodyColumn = cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)
                 val dateColumn = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)
                 val typeColumn = cursor.getColumnIndexOrThrow(Telephony.Sms.TYPE)
-                while (cursor.moveToNext()) {
+                while (size < MAX_ITEMS && cursor.moveToNext()) {
                     add(
                         SmsSnapshot(
                             id = cursor.getLong(idColumn),

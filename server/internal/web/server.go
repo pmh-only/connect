@@ -8,6 +8,7 @@ import (
 	"errors"
 	"html/template"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -74,15 +75,20 @@ func (s *Server) collect(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	var collection model.Collection
 	if err := decoder.Decode(&collection); err != nil {
-		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			s.rejectCollection(w, r, "payload exceeds 4 MiB", http.StatusRequestEntityTooLarge)
+			return
+		}
+		s.rejectCollection(w, r, "invalid JSON payload", http.StatusBadRequest)
 		return
 	}
 	if err := ensureEOF(decoder); err != nil {
-		http.Error(w, "request must contain one JSON object", http.StatusBadRequest)
+		s.rejectCollection(w, r, "request must contain one JSON object", http.StatusBadRequest)
 		return
 	}
 	if err := validateCollection(&collection); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.rejectCollection(w, r, err.Error(), http.StatusBadRequest)
 		return
 	}
 	stored, err := s.store.Add(collection)
@@ -93,6 +99,11 @@ func (s *Server) collect(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]any{"status": "accepted", "receivedAt": stored.ReceivedAt})
+}
+
+func (s *Server) rejectCollection(w http.ResponseWriter, r *http.Request, reason string, status int) {
+	slog.Warn("collection rejected", "status", status, "reason", reason, "remote", r.RemoteAddr)
+	http.Error(w, reason, status)
 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
