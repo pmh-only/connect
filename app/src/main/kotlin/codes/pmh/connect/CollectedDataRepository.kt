@@ -91,8 +91,9 @@ object CollectedDataRepository {
     private val _data = MutableStateFlow(CollectedData())
     val data = _data.asStateFlow()
 
-    fun isHealthAvailable(context: Context): Boolean =
+    fun isHealthAvailable(context: Context): Boolean = runCatching {
         HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE
+    }.getOrDefault(false)
 
     fun requestedHealthPermissions(context: Context): Set<String> {
         if (!isHealthAvailable(context)) return emptySet()
@@ -111,16 +112,18 @@ object CollectedDataRepository {
 
     suspend fun hasHealthPermissions(context: Context): Boolean {
         if (!isHealthAvailable(context)) return false
-        val required = requestedHealthPermissions(context)
-        return HealthConnectClient.getOrCreate(context)
-            .permissionController
-            .getGrantedPermissions()
-            .containsAll(required)
+        return runCatching {
+            val required = requestedHealthPermissions(context)
+            HealthConnectClient.getOrCreate(context)
+                .permissionController
+                .getGrantedPermissions()
+                .containsAll(required)
+        }.getOrDefault(false)
     }
 
     suspend fun refresh(context: Context) {
-        refreshSms(context)
-        refreshHealth(context)
+        runCatching { refreshSms(context) }
+        runCatching { refreshHealth(context) }
     }
 
     fun updateBattery(intent: Intent) {

@@ -261,7 +261,9 @@ class ConnectService : Service() {
         val isRunning = _isRunning.asStateFlow()
 
         fun start(context: Context) {
-            context.startForegroundService(Intent(context, ConnectService::class.java))
+            runCatching {
+                context.startForegroundService(Intent(context, ConnectService::class.java))
+            }
         }
 
         fun scheduleWatchdog(context: Context) {

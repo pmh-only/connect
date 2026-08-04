@@ -7,7 +7,7 @@
     <string name="service_starting">Service starting</string>
     <string name="boot_enabled">STARTS ON BOOT</string>
     <string name="ensure_running">Ensure service is running</string>
-    <string name="grant_all_access">Grant data and reliability access</string>
+    <string name="grant_all_access">Set up data and reliability access</string>
     <string name="all_access_enabled">Data and reliability access enabled</string>
     <string name="reliability_access">RELIABILITY ACCESS</string>
     <string name="battery_unrestricted">Battery unrestricted</string>

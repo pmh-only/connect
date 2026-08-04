@@ -134,7 +134,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        requestAllAccess()
     }
 
     override fun onResume() {
@@ -164,7 +163,12 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (missingPermissions.isNotEmpty()) {
-            runtimePermissionLauncher.launch(missingPermissions.toTypedArray())
+            if (runCatching {
+                    runtimePermissionLauncher.launch(missingPermissions.toTypedArray())
+                }.isFailure
+            ) {
+                requestBackgroundLocationAccess()
+            }
             return
         }
 
@@ -186,15 +190,25 @@ class MainActivity : ComponentActivity() {
         }
 
         if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-            backgroundLocationPermissionLauncher.launch(
-                Manifest.permission.ACCESS_BACKGROUND_LOCATION,
-            )
+            if (runCatching {
+                    backgroundLocationPermissionLauncher.launch(
+                        Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+                    )
+                }.isFailure
+            ) {
+                requestBatteryOptimizationExemption()
+            }
         } else {
-            backgroundLocationSettingsLauncher.launch(
-                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(
-                    "package:$packageName".toUri(),
-                ),
-            )
+            if (runCatching {
+                    backgroundLocationSettingsLauncher.launch(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(
+                            "package:$packageName".toUri(),
+                        ),
+                    )
+                }.isFailure
+            ) {
+                requestBatteryOptimizationExemption()
+            }
         }
     }
 
@@ -202,11 +216,16 @@ class MainActivity : ComponentActivity() {
     private fun requestBatteryOptimizationExemption() {
         val powerManager = getSystemService(PowerManager::class.java)
         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
-            batteryExemptionLauncher.launch(
-                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).setData(
-                    "package:$packageName".toUri(),
-                ),
-            )
+            if (runCatching {
+                    batteryExemptionLauncher.launch(
+                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).setData(
+                            "package:$packageName".toUri(),
+                        ),
+                    )
+                }.isFailure
+            ) {
+                requestExactAlarmAccess()
+            }
             return
         }
 
@@ -219,11 +238,16 @@ class MainActivity : ComponentActivity() {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             !alarmManager.canScheduleExactAlarms()
         ) {
-            exactAlarmLauncher.launch(
-                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).setData(
-                    "package:$packageName".toUri(),
-                ),
-            )
+            if (runCatching {
+                    exactAlarmLauncher.launch(
+                        Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).setData(
+                            "package:$packageName".toUri(),
+                        ),
+                    )
+                }.isFailure
+            ) {
+                requestHealthAccess()
+            }
             return
         }
 
@@ -237,23 +261,33 @@ class MainActivity : ComponentActivity() {
         }
 
         lifecycleScope.launch {
-            val required = CollectedDataRepository.requestedHealthPermissions(this@MainActivity)
+            val required = runCatching {
+                CollectedDataRepository.requestedHealthPermissions(this@MainActivity)
+            }.getOrElse {
+                requestNotificationAccess()
+                return@launch
+            }
             val hasPermissions = runCatching {
                 CollectedDataRepository.hasHealthPermissions(this@MainActivity)
             }.getOrDefault(false)
             if (hasPermissions) {
                 requestNotificationAccess()
-            } else {
-                healthPermissionLauncher.launch(required)
+            } else if (runCatching { healthPermissionLauncher.launch(required) }.isFailure) {
+                requestNotificationAccess()
             }
         }
     }
 
     private fun requestNotificationAccess() {
         if (!NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)) {
-            notificationAccessLauncher.launch(
-                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS),
-            )
+            if (runCatching {
+                    notificationAccessLauncher.launch(
+                        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS),
+                    )
+                }.isFailure
+            ) {
+                finishAccessFlow()
+            }
             return
         }
 
@@ -271,14 +305,20 @@ class MainActivity : ComponentActivity() {
     private fun updateAccessState() {
         val powerManager = getSystemService(PowerManager::class.java)
         val alarmManager = getSystemService(AlarmManager::class.java)
-        val batteryExempt = powerManager.isIgnoringBatteryOptimizations(packageName)
-        val exactAlarmAccess = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            alarmManager.canScheduleExactAlarms()
+        val batteryExempt = runCatching {
+            powerManager.isIgnoringBatteryOptimizations(packageName)
+        }.getOrDefault(false)
+        val exactAlarmAccess = runCatching {
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                alarmManager.canScheduleExactAlarms()
+        }.getOrDefault(false)
         val smsAccess = checkSelfPermission(Manifest.permission.READ_SMS) ==
             PackageManager.PERMISSION_GRANTED
-        val notificationAccess = NotificationManagerCompat
-            .getEnabledListenerPackages(this)
-            .contains(packageName)
+        val notificationAccess = runCatching {
+            NotificationManagerCompat
+                .getEnabledListenerPackages(this)
+                .contains(packageName)
+        }.getOrDefault(false)
         val healthAvailable = CollectedDataRepository.isHealthAvailable(this)
         val locationAccess = hasForegroundLocationAccess() &&
             (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
@@ -298,7 +338,7 @@ class MainActivity : ComponentActivity() {
                 notificationAccess = notificationAccess,
                 locationAccess = locationAccess,
             )
-            CollectedDataRepository.refresh(this@MainActivity)
+            runCatching { CollectedDataRepository.refresh(this@MainActivity) }
         }
     }
 
