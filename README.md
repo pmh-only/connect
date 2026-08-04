@@ -14,7 +14,10 @@ After the user grants access, Connect collects the following data locally:
 - Up to 100 recent SMS messages, including sender, body, type, and timestamp.
 - Up to 100 recent Android notifications, including source package, title, text, and timestamp.
 - Current battery percentage, charging state, temperature, and power source.
-- Latest location coordinates, accuracy, altitude, speed, provider, and timestamp.
+- Latest location plus up to 100 recent fixes, including all available accuracy, altitude, speed,
+  bearing, monotonic timing, mock-source, provider-extra, and reverse-geocoded address fields.
+- Location service/provider capabilities and the latest bounded GNSS status with detailed satellite
+  constellation, signal, orbit-data, carrier-frequency, and fix-usage fields.
 
 Collection snapshots are held in application process memory and rebuilt from currently accessible sources after restart. When a collection endpoint and token are configured in the app, the complete snapshot is uploaded immediately and every minute.
 
@@ -31,8 +34,15 @@ them. Exercise routes from other applications trigger Health Connect's separate 
 flow; denied or unavailable routes remain represented by their route status.
 
 Uploads target 3.75 MiB so they remain below the server's 4 MiB request limit. In the exceptional
-case that a snapshot is larger, the oldest messages, notifications, medical resources, and detailed
-health records are removed in that order and the upload is marked `truncatedForUpload`.
+case that a snapshot is larger, the oldest messages, notifications, location fixes, medical
+resources, and detailed health records are removed in that order and the upload is marked
+`truncatedForUpload`.
+
+Reverse geocoding runs only after at least 100 meters of movement or 15 minutes and depends on the
+device's Android geocoder implementation. That implementation may use a network service and disclose
+the coordinates to its geocoding provider. Address results are informational and may be missing or
+inaccurate. Provider-specific location extras are bounded to 50 text values, GNSS status to 128
+satellites, and address lines to five.
 
 ## Go server
 
@@ -76,7 +86,8 @@ The MCP endpoint implements JSON-RPC Streamable HTTP initialization and tools fo
 - Requests exemption from battery optimization on first launch.
 - Requests exact-alarm access and schedules a 10-minute restart watchdog.
 - Holds a partial wake lock while the foreground service is active.
-- Uses a location foreground-service type and requests updates every 60 seconds or 25 meters.
+- Uses a location foreground-service type and requests enabled-provider updates with both a
+  60-second minimum interval and a 25-meter minimum displacement.
 
 On Android 11 and newer, background location must be enabled from the application settings by selecting **Permissions > Location > Allow all the time**. Connect opens the application settings during its first-run access flow.
 

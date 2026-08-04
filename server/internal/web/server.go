@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -121,6 +122,17 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		if len(devices[index].Notifications) > 20 {
 			devices[index].Notifications = devices[index].Notifications[:20]
 		}
+		locations := append([]model.LocationSnapshot(nil), devices[index].LocationHistory...)
+		sort.Slice(locations, func(left, right int) bool {
+			if locations[left].ElapsedRealtimeNanos != locations[right].ElapsedRealtimeNanos {
+				return locations[left].ElapsedRealtimeNanos > locations[right].ElapsedRealtimeNanos
+			}
+			return locations[left].Timestamp > locations[right].Timestamp
+		})
+		if len(locations) > 20 {
+			locations = locations[:20]
+		}
+		devices[index].LocationHistory = locations
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.template.ExecuteTemplate(w, "dashboard.html", dashboardData{
@@ -142,6 +154,25 @@ func validateCollection(collection *model.Collection) error {
 	if len(collection.SMSMessages) > 100 || len(collection.Notifications) > 100 {
 		return errors.New("SMS and notification lists are limited to 100 entries")
 	}
+	if len(collection.LocationHistory) > 100 {
+		return errors.New("location history is limited to 100 entries")
+	}
+	if collection.LocationStatus != nil && len(collection.LocationStatus.Providers) > 64 {
+		return errors.New("location providers are limited to 64 entries")
+	}
+	if collection.GNSS != nil && len(collection.GNSS.Satellites) > 128 {
+		return errors.New("GNSS satellites are limited to 128 entries")
+	}
+	if collection.Location != nil {
+		if err := validateLocation(collection.Location); err != nil {
+			return err
+		}
+	}
+	for index := range collection.LocationHistory {
+		if err := validateLocation(&collection.LocationHistory[index]); err != nil {
+			return err
+		}
+	}
 	if collection.Health != nil {
 		if len(collection.Health.Records) > 123 {
 			return errors.New("health records are limited to 123 entries")
@@ -161,6 +192,45 @@ func validateCollection(collection *model.Collection) error {
 			len(collection.Health.GrantedMedicalResourceTypes) > 12 {
 			return errors.New("medical resource type lists are limited to 12 entries")
 		}
+	}
+	return nil
+}
+
+func validateLocation(location *model.LocationSnapshot) error {
+	if location.Latitude < -90 || location.Latitude > 90 ||
+		location.Longitude < -180 || location.Longitude > 180 {
+		return errors.New("location coordinates are out of range")
+	}
+	if location.ElapsedRealtimeNanos < 0 || location.AgeAtReceiptMillis < 0 {
+		return errors.New("location monotonic timing must not be negative")
+	}
+	for _, measurement := range []*float64{
+		location.AccuracyMeters,
+		location.VerticalAccuracyMeters,
+		location.MSLAltitudeAccuracyMeters,
+		location.SpeedMetersPerSecond,
+		location.SpeedAccuracyMetersPerSecond,
+		location.BearingAccuracyDegrees,
+		location.ElapsedRealtimeUncertaintyNanos,
+	} {
+		if measurement != nil && *measurement < 0 {
+			return errors.New("location accuracy, speed, and uncertainty must not be negative")
+		}
+	}
+	if location.BearingDegrees != nil &&
+		(*location.BearingDegrees < 0 || *location.BearingDegrees >= 360) {
+		return errors.New("location bearing must be between 0 and 360 degrees")
+	}
+	if len(location.Extras) > 50 {
+		return errors.New("location extras are limited to 50 entries")
+	}
+	if location.Address != nil && len(location.Address.AddressLines) > 5 {
+		return errors.New("location address lines are limited to 5 entries")
+	}
+	if location.Address != nil &&
+		(location.Address.SourceLatitude < -90 || location.Address.SourceLatitude > 90 ||
+			location.Address.SourceLongitude < -180 || location.Address.SourceLongitude > 180) {
+		return errors.New("location address source coordinates are out of range")
 	}
 	return nil
 }

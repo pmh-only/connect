@@ -14,10 +14,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.database.ContentObserver
+import android.location.GnssStatus
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -36,6 +38,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class ConnectService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -43,8 +46,17 @@ class ConnectService : Service() {
     private var batteryReceiver: BroadcastReceiver? = null
     private var smsObserver: ContentObserver? = null
     private var locationListener: LocationListener? = null
+    private var locationProviderReceiver: BroadcastReceiver? = null
+    private var gnssStatusCallback: GnssStatus.Callback? = null
+    private var geocodeJob: Job? = null
+    private var pendingGeocodeLocation: LocationSnapshot? = null
     private var collectionJob: Job? = null
     private var uploadJob: Job? = null
+    private val legacyProviderStatuses = mutableMapOf<String, Int>()
+    private var gnssRunning = false
+    private var timeToFirstFixMillis: Int? = null
+    private var lastGeocodeAttempt: LocationSnapshot? = null
+    private val geocodeLock = Any()
 
     override fun onCreate() {
         super.onCreate()
@@ -55,7 +67,9 @@ class ConnectService : Service() {
         acquireWakeLock()
         registerBatteryMonitor()
         registerSmsObserver()
+        registerLocationProviderMonitor()
         registerLocationUpdates()
+        registerGnssStatus()
         startPeriodicCollection()
         startPeriodicUpload()
         scheduleWatchdog(this)
@@ -64,7 +78,9 @@ class ConnectService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         promoteToForeground()
         registerSmsObserver()
+        registerLocationProviderMonitor()
         registerLocationUpdates()
+        registerGnssStatus()
         serviceScope.launch {
             CollectedDataRepository.refresh(applicationContext)
             DataUploader.upload(applicationContext, CollectedDataRepository.data.value)
@@ -88,6 +104,18 @@ class ConnectService : Service() {
             getSystemService(LocationManager::class.java).removeUpdates(it)
         }
         locationListener = null
+        locationProviderReceiver?.let { runCatching { unregisterReceiver(it) } }
+        locationProviderReceiver = null
+        gnssStatusCallback?.let {
+            runCatching { getSystemService(LocationManager::class.java).unregisterGnssStatusCallback(it) }
+        }
+        gnssStatusCallback = null
+        CollectedDataRepository.updateGnssRunning(false)
+        synchronized(geocodeLock) {
+            geocodeJob?.cancel()
+            geocodeJob = null
+            pendingGeocodeLocation = null
+        }
         serviceScope.cancel()
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
@@ -172,14 +200,26 @@ class ConnectService : Service() {
         if (providers.isEmpty()) return
         locationListener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                CollectedDataRepository.updateLocation(location)
+                handleLocation(location)
+            }
+
+            override fun onProviderEnabled(provider: String) {
+                refreshLocationStatus()
+            }
+
+            override fun onProviderDisabled(provider: String) {
+                refreshLocationStatus()
+            }
+
+            @Deprecated("Provider status callbacks are not delivered on Android 10 and newer")
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
+                provider?.let { legacyProviderStatuses[it] = status }
+                refreshLocationStatus()
             }
         }.also { listener ->
             providers.forEach { provider ->
                 runCatching {
-                    manager.getLastKnownLocation(provider)?.let(
-                        CollectedDataRepository::updateLocation,
-                    )
+                    manager.getLastKnownLocation(provider)?.let(::handleLocation)
                     manager.requestLocationUpdates(
                         provider,
                         LOCATION_INTERVAL_MS,
@@ -190,6 +230,149 @@ class ConnectService : Service() {
                 }
             }
         }
+        refreshLocationStatus()
+    }
+
+    private fun handleLocation(location: Location) {
+        val accepted = CollectedDataRepository.updateLocation(location) ?: return
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+            accepted.mslAltitudeMeters == null
+        ) {
+            val source = Location(location)
+            serviceScope.launch {
+                LocationDataCollector.addMslAltitude(applicationContext, source)
+                    ?.let(CollectedDataRepository::updateLocation)
+            }
+        }
+        if (!shouldReverseGeocode(accepted)) return
+        scheduleReverseGeocode(accepted)
+    }
+
+    private fun shouldReverseGeocode(location: LocationSnapshot): Boolean {
+        val previous = synchronized(geocodeLock) { lastGeocodeAttempt } ?: return true
+        val elapsedNanos = location.elapsedRealtimeNanos - previous.elapsedRealtimeNanos
+        if (elapsedNanos >= GEOCODE_INTERVAL_MS * 1_000_000L) return true
+
+        val distance = FloatArray(1)
+        Location.distanceBetween(
+            previous.latitude,
+            previous.longitude,
+            location.latitude,
+            location.longitude,
+            distance,
+        )
+        return distance[0] >= GEOCODE_MIN_DISTANCE_METERS
+    }
+
+    private fun scheduleReverseGeocode(location: LocationSnapshot) {
+        synchronized(geocodeLock) {
+            val pending = pendingGeocodeLocation
+            if (pending == null || LocationDataCollector.shouldReplace(pending, location)) {
+                pendingGeocodeLocation = location
+            }
+            if (geocodeJob?.isActive == true) {
+                return
+            }
+            geocodeJob = serviceScope.launch {
+                while (true) {
+                    val next = synchronized(geocodeLock) {
+                        val queued = pendingGeocodeLocation
+                        if (queued == null) {
+                            geocodeJob = null
+                            return@launch
+                        }
+                        pendingGeocodeLocation = null
+                        lastGeocodeAttempt = queued
+                        queued
+                    }
+                    withTimeoutOrNull(GEOCODE_TIMEOUT_MS) {
+                        LocationDataCollector.reverseGeocode(applicationContext, next)
+                    }?.let(CollectedDataRepository::updateLocationAddress)
+                }
+            }
+        }
+    }
+
+    private fun registerLocationProviderMonitor() {
+        if (locationProviderReceiver != null) return
+        locationProviderReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                refreshLocationStatus()
+                locationListener?.let {
+                    runCatching { getSystemService(LocationManager::class.java).removeUpdates(it) }
+                }
+                locationListener = null
+                registerLocationUpdates()
+            }
+        }.also { receiver ->
+            ContextCompat.registerReceiver(
+                this,
+                receiver,
+                IntentFilter().apply {
+                    addAction(LocationManager.MODE_CHANGED_ACTION)
+                    addAction(LocationManager.PROVIDERS_CHANGED_ACTION)
+                },
+                ContextCompat.RECEIVER_EXPORTED,
+            )
+        }
+        refreshLocationStatus()
+    }
+
+    private fun refreshLocationStatus() {
+        val manager = getSystemService(LocationManager::class.java)
+        CollectedDataRepository.updateLocationStatus(
+            LocationDataCollector.providers(manager, legacyProviderStatuses),
+        )
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun registerGnssStatus() {
+        if (
+            gnssStatusCallback != null || !hasBackgroundLocationAccess() ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
+        val manager = getSystemService(LocationManager::class.java)
+        val callback = object : GnssStatus.Callback() {
+            override fun onStarted() {
+                gnssRunning = true
+                timeToFirstFixMillis = null
+                CollectedDataRepository.updateGnssRunning(true)
+            }
+
+            override fun onStopped() {
+                gnssRunning = false
+                CollectedDataRepository.updateGnssRunning(false)
+            }
+
+            override fun onFirstFix(ttffMillis: Int) {
+                timeToFirstFixMillis = ttffMillis
+                CollectedDataRepository.updateGnssTimeToFirstFix(ttffMillis)
+            }
+
+            override fun onSatelliteStatusChanged(status: GnssStatus) {
+                CollectedDataRepository.updateGnssStatus(
+                    LocationDataCollector.fromGnssStatus(
+                        status,
+                        gnssRunning,
+                        timeToFirstFixMillis,
+                    ),
+                )
+            }
+        }
+        val registered = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                manager.registerGnssStatusCallback(mainExecutor, callback)
+            } else {
+                @Suppress("DEPRECATION")
+                manager.registerGnssStatusCallback(callback, Handler(Looper.getMainLooper()))
+            }
+        }.getOrDefault(false)
+        if (registered) gnssStatusCallback = callback
     }
 
     private fun hasBackgroundLocationAccess(): Boolean {
@@ -269,6 +452,9 @@ class ConnectService : Service() {
         private const val UPLOAD_INTERVAL_MS = 60 * 1000L
         private const val LOCATION_INTERVAL_MS = 60 * 1000L
         private const val LOCATION_MIN_DISTANCE_METERS = 25f
+        private const val GEOCODE_INTERVAL_MS = 15 * 60 * 1000L
+        private const val GEOCODE_TIMEOUT_MS = 30 * 1000L
+        private const val GEOCODE_MIN_DISTANCE_METERS = 100f
         private const val PREFERENCES_NAME = "connect_service"
         private const val ENABLED_KEY = "enabled"
 

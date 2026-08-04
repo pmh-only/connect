@@ -209,17 +209,12 @@ object DataUploader {
                 put("plugged", snapshot.plugged)
             }
         } ?: JSONObject.NULL)
-        put("location", location?.let { snapshot ->
-            JSONObject().apply {
-                put("latitude", snapshot.latitude)
-                put("longitude", snapshot.longitude)
-                put("accuracyMeters", snapshot.accuracyMeters.toDouble())
-                put("altitudeMeters", snapshot.altitudeMeters)
-                put("speedMetersPerSecond", snapshot.speedMetersPerSecond.toDouble())
-                put("provider", snapshot.provider)
-                put("timestamp", snapshot.timestamp)
-            }
-        } ?: JSONObject.NULL)
+        put("location", location?.toJSON() ?: JSONObject.NULL)
+        put("locationHistory", JSONArray().apply {
+            locationHistory.take(MAX_UPLOAD_ITEMS).forEach { put(it.toJSON()) }
+        })
+        put("locationStatus", locationStatus?.toJSON() ?: JSONObject.NULL)
+        put("gnss", gnss?.toJSON() ?: JSONObject.NULL)
     }
 
     private fun JSONObject.toBoundedPayload(): ByteArray {
@@ -233,6 +228,7 @@ object DataUploader {
         val removableArrays = listOfNotNull(
             optJSONArray("smsMessages"),
             optJSONArray("notifications"),
+            optJSONArray("locationHistory"),
             health?.optJSONArray("medicalResources"),
             health?.optJSONArray("records"),
         )
@@ -244,5 +240,118 @@ object DataUploader {
             }
         }
         throw IllegalStateException("Collection payload exceeds upload limit")
+    }
+
+    private fun LocationSnapshot.toJSON(): JSONObject = JSONObject().apply {
+        put("latitude", latitude)
+        put("longitude", longitude)
+        put("accuracyMeters", accuracyMeters ?: JSONObject.NULL)
+        put("altitudeMeters", altitudeMeters ?: JSONObject.NULL)
+        put("verticalAccuracyMeters", verticalAccuracyMeters ?: JSONObject.NULL)
+        put("mslAltitudeMeters", mslAltitudeMeters ?: JSONObject.NULL)
+        put("mslAltitudeAccuracyMeters", mslAltitudeAccuracyMeters ?: JSONObject.NULL)
+        put("speedMetersPerSecond", speedMetersPerSecond ?: JSONObject.NULL)
+        put(
+            "speedAccuracyMetersPerSecond",
+            speedAccuracyMetersPerSecond ?: JSONObject.NULL,
+        )
+        put("bearingDegrees", bearingDegrees ?: JSONObject.NULL)
+        put("bearingAccuracyDegrees", bearingAccuracyDegrees ?: JSONObject.NULL)
+        put("provider", provider)
+        put("timestamp", timestamp)
+        put("elapsedRealtimeNanos", elapsedRealtimeNanos)
+        put(
+            "elapsedRealtimeUncertaintyNanos",
+            elapsedRealtimeUncertaintyNanos ?: JSONObject.NULL,
+        )
+        put("ageAtReceiptMillis", ageAtReceiptMillis)
+        put("isMock", isMock)
+        put("isComplete", isComplete ?: JSONObject.NULL)
+        put("extras", JSONObject(extras))
+        put("address", address?.toJSON() ?: JSONObject.NULL)
+    }
+
+    private fun LocationAddressSnapshot.toJSON(): JSONObject = JSONObject().apply {
+        put("sourceLocationElapsedRealtimeNanos", sourceLocationElapsedRealtimeNanos)
+        put("sourceProvider", sourceProvider)
+        put("sourceLatitude", sourceLatitude)
+        put("sourceLongitude", sourceLongitude)
+        put("featureName", featureName ?: JSONObject.NULL)
+        put("premises", premises ?: JSONObject.NULL)
+        put("subThoroughfare", subThoroughfare ?: JSONObject.NULL)
+        put("thoroughfare", thoroughfare ?: JSONObject.NULL)
+        put("subLocality", subLocality ?: JSONObject.NULL)
+        put("locality", locality ?: JSONObject.NULL)
+        put("subAdminArea", subAdminArea ?: JSONObject.NULL)
+        put("adminArea", adminArea ?: JSONObject.NULL)
+        put("postalCode", postalCode ?: JSONObject.NULL)
+        put("countryCode", countryCode ?: JSONObject.NULL)
+        put("countryName", countryName ?: JSONObject.NULL)
+        put("phone", phone ?: JSONObject.NULL)
+        put("url", url ?: JSONObject.NULL)
+        put("latitude", latitude ?: JSONObject.NULL)
+        put("longitude", longitude ?: JSONObject.NULL)
+        put("localeLanguageTag", localeLanguageTag ?: JSONObject.NULL)
+        put("addressLines", JSONArray(addressLines))
+        put("resolvedAt", resolvedAt)
+    }
+
+    private fun LocationStatusSnapshot.toJSON(): JSONObject = JSONObject().apply {
+        put("locationEnabled", locationEnabled)
+        put("reportedProviderCount", reportedProviderCount)
+        put("providersTruncated", providersTruncated)
+        put("gnssHardwareYear", gnssHardwareYear ?: JSONObject.NULL)
+        put("gnssHardwareModelName", gnssHardwareModelName ?: JSONObject.NULL)
+        put("timestamp", timestamp)
+        put("providers", JSONArray().apply {
+            providers.forEach { provider ->
+                put(JSONObject().apply {
+                    put("name", provider.name)
+                    put("enabled", provider.enabled)
+                    put("propertiesKnown", provider.propertiesKnown)
+                    put("accuracy", provider.accuracy ?: JSONObject.NULL)
+                    put("powerUsage", provider.powerUsage ?: JSONObject.NULL)
+                    put("hasMonetaryCost", provider.hasMonetaryCost ?: JSONObject.NULL)
+                    put("requiresCell", provider.requiresCell ?: JSONObject.NULL)
+                    put("requiresNetwork", provider.requiresNetwork ?: JSONObject.NULL)
+                    put("requiresSatellite", provider.requiresSatellite ?: JSONObject.NULL)
+                    put("supportsAltitude", provider.supportsAltitude ?: JSONObject.NULL)
+                    put("supportsBearing", provider.supportsBearing ?: JSONObject.NULL)
+                    put("supportsSpeed", provider.supportsSpeed ?: JSONObject.NULL)
+                    put("legacyStatus", provider.legacyStatus ?: JSONObject.NULL)
+                })
+            }
+        })
+    }
+
+    private fun GnssSnapshot.toJSON(): JSONObject = JSONObject().apply {
+        put("running", running)
+        put("timeToFirstFixMillis", timeToFirstFixMillis ?: JSONObject.NULL)
+        put("reportedSatelliteCount", reportedSatelliteCount)
+        put("satellitesTruncated", satellitesTruncated)
+        put("capturedAt", capturedAt)
+        put("capturedAtElapsedRealtimeNanos", capturedAtElapsedRealtimeNanos)
+        put("satellites", JSONArray().apply {
+            satellites.forEach { satellite ->
+                put(JSONObject().apply {
+                    put("constellationType", satellite.constellationType)
+                    put("svid", satellite.svid)
+                    put("cn0DbHz", satellite.cn0DbHz)
+                    put("elevationDegrees", satellite.elevationDegrees)
+                    put("azimuthDegrees", satellite.azimuthDegrees)
+                    put("hasEphemerisData", satellite.hasEphemerisData)
+                    put("hasAlmanacData", satellite.hasAlmanacData)
+                    put("usedInFix", satellite.usedInFix)
+                    put("carrierFrequencyHz", satellite.carrierFrequencyHz ?: JSONObject.NULL)
+                    put("basebandCn0DbHz", satellite.basebandCn0DbHz ?: JSONObject.NULL)
+                    put("codeType", satellite.codeType ?: JSONObject.NULL)
+                    put("elapsedRealtimeNanos", satellite.elapsedRealtimeNanos ?: JSONObject.NULL)
+                    put(
+                        "elapsedRealtimeUncertaintyNanos",
+                        satellite.elapsedRealtimeUncertaintyNanos ?: JSONObject.NULL,
+                    )
+                })
+            }
+        })
     }
 }

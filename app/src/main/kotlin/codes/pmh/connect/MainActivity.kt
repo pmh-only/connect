@@ -828,7 +828,15 @@ private fun CollectionSummaryCard(data: CollectedData) {
         )
     } ?: stringResource(R.string.waiting_for_data)
     val locationSummary = data.location?.let {
-        stringResource(R.string.location_summary, it.latitude, it.longitude)
+        it.accuracyMeters?.let { accuracy ->
+            stringResource(
+                R.string.location_summary_detailed,
+                it.latitude,
+                it.longitude,
+                it.provider,
+                accuracy,
+            )
+        } ?: stringResource(R.string.location_summary, it.latitude, it.longitude)
     } ?: stringResource(R.string.waiting_for_data)
 
     ExpressiveSectionCard(

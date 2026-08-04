@@ -3,16 +3,19 @@ package model
 import "encoding/json"
 
 type Collection struct {
-	DeviceID           string                 `json:"deviceId"`
-	DeviceName         string                 `json:"deviceName"`
-	CollectedAt        int64                  `json:"collectedAt"`
-	ReceivedAt         int64                  `json:"receivedAt"`
-	TruncatedForUpload bool                   `json:"truncatedForUpload,omitempty"`
-	Health             *HealthSnapshot        `json:"health,omitempty"`
-	SMSMessages        []SMSSnapshot          `json:"smsMessages,omitempty"`
-	Notifications      []NotificationSnapshot `json:"notifications,omitempty"`
-	Battery            *BatterySnapshot       `json:"battery,omitempty"`
-	Location           *LocationSnapshot      `json:"location,omitempty"`
+	DeviceID           string                  `json:"deviceId"`
+	DeviceName         string                  `json:"deviceName"`
+	CollectedAt        int64                   `json:"collectedAt"`
+	ReceivedAt         int64                   `json:"receivedAt"`
+	TruncatedForUpload bool                    `json:"truncatedForUpload,omitempty"`
+	Health             *HealthSnapshot         `json:"health,omitempty"`
+	SMSMessages        []SMSSnapshot           `json:"smsMessages,omitempty"`
+	Notifications      []NotificationSnapshot  `json:"notifications,omitempty"`
+	Battery            *BatterySnapshot        `json:"battery,omitempty"`
+	Location           *LocationSnapshot       `json:"location,omitempty"`
+	LocationHistory    []LocationSnapshot      `json:"locationHistory,omitempty"`
+	LocationStatus     *LocationStatusSnapshot `json:"locationStatus,omitempty"`
+	GNSS               *GNSSSnapshot           `json:"gnss,omitempty"`
 }
 
 type HealthSnapshot struct {
@@ -95,11 +98,101 @@ type BatterySnapshot struct {
 }
 
 type LocationSnapshot struct {
-	Latitude             float64 `json:"latitude"`
-	Longitude            float64 `json:"longitude"`
-	AccuracyMeters       float64 `json:"accuracyMeters"`
-	AltitudeMeters       float64 `json:"altitudeMeters"`
-	SpeedMetersPerSecond float64 `json:"speedMetersPerSecond"`
-	Provider             string  `json:"provider"`
-	Timestamp            int64   `json:"timestamp"`
+	Latitude                        float64                  `json:"latitude"`
+	Longitude                       float64                  `json:"longitude"`
+	AccuracyMeters                  *float64                 `json:"accuracyMeters,omitempty"`
+	AltitudeMeters                  *float64                 `json:"altitudeMeters,omitempty"`
+	VerticalAccuracyMeters          *float64                 `json:"verticalAccuracyMeters,omitempty"`
+	MSLAltitudeMeters               *float64                 `json:"mslAltitudeMeters,omitempty"`
+	MSLAltitudeAccuracyMeters       *float64                 `json:"mslAltitudeAccuracyMeters,omitempty"`
+	SpeedMetersPerSecond            *float64                 `json:"speedMetersPerSecond,omitempty"`
+	SpeedAccuracyMetersPerSecond    *float64                 `json:"speedAccuracyMetersPerSecond,omitempty"`
+	BearingDegrees                  *float64                 `json:"bearingDegrees,omitempty"`
+	BearingAccuracyDegrees          *float64                 `json:"bearingAccuracyDegrees,omitempty"`
+	Provider                        string                   `json:"provider"`
+	Timestamp                       int64                    `json:"timestamp"`
+	ElapsedRealtimeNanos            int64                    `json:"elapsedRealtimeNanos"`
+	ElapsedRealtimeUncertaintyNanos *float64                 `json:"elapsedRealtimeUncertaintyNanos,omitempty"`
+	AgeAtReceiptMillis              int64                    `json:"ageAtReceiptMillis"`
+	IsMock                          bool                     `json:"isMock"`
+	IsComplete                      *bool                    `json:"isComplete,omitempty"`
+	Extras                          map[string]string        `json:"extras,omitempty"`
+	Address                         *LocationAddressSnapshot `json:"address,omitempty"`
+}
+
+type LocationAddressSnapshot struct {
+	SourceLocationElapsedRealtimeNanos int64    `json:"sourceLocationElapsedRealtimeNanos"`
+	SourceProvider                     string   `json:"sourceProvider"`
+	SourceLatitude                     float64  `json:"sourceLatitude"`
+	SourceLongitude                    float64  `json:"sourceLongitude"`
+	FeatureName                        *string  `json:"featureName,omitempty"`
+	Premises                           *string  `json:"premises,omitempty"`
+	SubThoroughfare                    *string  `json:"subThoroughfare,omitempty"`
+	Thoroughfare                       *string  `json:"thoroughfare,omitempty"`
+	SubLocality                        *string  `json:"subLocality,omitempty"`
+	Locality                           *string  `json:"locality,omitempty"`
+	SubAdminArea                       *string  `json:"subAdminArea,omitempty"`
+	AdminArea                          *string  `json:"adminArea,omitempty"`
+	PostalCode                         *string  `json:"postalCode,omitempty"`
+	CountryCode                        *string  `json:"countryCode,omitempty"`
+	CountryName                        *string  `json:"countryName,omitempty"`
+	Phone                              *string  `json:"phone,omitempty"`
+	URL                                *string  `json:"url,omitempty"`
+	Latitude                           *float64 `json:"latitude,omitempty"`
+	Longitude                          *float64 `json:"longitude,omitempty"`
+	LocaleLanguageTag                  *string  `json:"localeLanguageTag,omitempty"`
+	AddressLines                       []string `json:"addressLines,omitempty"`
+	ResolvedAt                         int64    `json:"resolvedAt"`
+}
+
+type LocationStatusSnapshot struct {
+	LocationEnabled       bool                       `json:"locationEnabled"`
+	ReportedProviderCount int                        `json:"reportedProviderCount"`
+	ProvidersTruncated    bool                       `json:"providersTruncated"`
+	Providers             []LocationProviderSnapshot `json:"providers,omitempty"`
+	GNSSHardwareYear      *int                       `json:"gnssHardwareYear,omitempty"`
+	GNSSHardwareModelName *string                    `json:"gnssHardwareModelName,omitempty"`
+	Timestamp             int64                      `json:"timestamp"`
+}
+
+type LocationProviderSnapshot struct {
+	Name              string `json:"name"`
+	Enabled           bool   `json:"enabled"`
+	PropertiesKnown   bool   `json:"propertiesKnown"`
+	Accuracy          *int   `json:"accuracy,omitempty"`
+	PowerUsage        *int   `json:"powerUsage,omitempty"`
+	HasMonetaryCost   *bool  `json:"hasMonetaryCost,omitempty"`
+	RequiresCell      *bool  `json:"requiresCell,omitempty"`
+	RequiresNetwork   *bool  `json:"requiresNetwork,omitempty"`
+	RequiresSatellite *bool  `json:"requiresSatellite,omitempty"`
+	SupportsAltitude  *bool  `json:"supportsAltitude,omitempty"`
+	SupportsBearing   *bool  `json:"supportsBearing,omitempty"`
+	SupportsSpeed     *bool  `json:"supportsSpeed,omitempty"`
+	LegacyStatus      *int   `json:"legacyStatus,omitempty"`
+}
+
+type GNSSSnapshot struct {
+	Running                        bool                    `json:"running"`
+	TimeToFirstFixMillis           *int                    `json:"timeToFirstFixMillis,omitempty"`
+	ReportedSatelliteCount         int                     `json:"reportedSatelliteCount"`
+	SatellitesTruncated            bool                    `json:"satellitesTruncated"`
+	Satellites                     []GNSSSatelliteSnapshot `json:"satellites,omitempty"`
+	CapturedAt                     int64                   `json:"capturedAt"`
+	CapturedAtElapsedRealtimeNanos int64                   `json:"capturedAtElapsedRealtimeNanos"`
+}
+
+type GNSSSatelliteSnapshot struct {
+	ConstellationType               int      `json:"constellationType"`
+	SVID                            int      `json:"svid"`
+	CN0DBHz                         float64  `json:"cn0DbHz"`
+	ElevationDegrees                float64  `json:"elevationDegrees"`
+	AzimuthDegrees                  float64  `json:"azimuthDegrees"`
+	HasEphemerisData                bool     `json:"hasEphemerisData"`
+	HasAlmanacData                  bool     `json:"hasAlmanacData"`
+	UsedInFix                       bool     `json:"usedInFix"`
+	CarrierFrequencyHz              *float64 `json:"carrierFrequencyHz,omitempty"`
+	BasebandCN0DBHz                 *float64 `json:"basebandCn0DbHz,omitempty"`
+	CodeType                        *string  `json:"codeType,omitempty"`
+	ElapsedRealtimeNanos            *int64   `json:"elapsedRealtimeNanos,omitempty"`
+	ElapsedRealtimeUncertaintyNanos *float64 `json:"elapsedRealtimeUncertaintyNanos,omitempty"`
 }

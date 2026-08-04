@@ -57,6 +57,7 @@
     <string name="battery_summary">%1$d%%</string>
     <string name="battery_charging_summary">%1$d%% charging</string>
     <string name="location_summary">%1$.5f, %2$.5f</string>
+    <string name="location_summary_detailed">%1$.5f, %2$.5f · %3$s ±%4$.0f m</string>
     <string name="waiting_for_data">Waiting</string>
     <string name="system_limitation">Force stop disables every restart mechanism until Connect is opened again.</string>
     <string name="service_channel_name">Persistent connection</string>

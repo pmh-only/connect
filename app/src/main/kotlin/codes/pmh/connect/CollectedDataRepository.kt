@@ -49,6 +49,9 @@ data class CollectedData(
     val notifications: List<NotificationSnapshot> = emptyList(),
     val battery: BatterySnapshot? = null,
     val location: LocationSnapshot? = null,
+    val locationHistory: List<LocationSnapshot> = emptyList(),
+    val locationStatus: LocationStatusSnapshot? = null,
+    val gnss: GnssSnapshot? = null,
 )
 
 data class HealthSnapshot(
@@ -102,18 +105,9 @@ data class BatterySnapshot(
     val plugged: Int,
 )
 
-data class LocationSnapshot(
-    val latitude: Double,
-    val longitude: Double,
-    val accuracyMeters: Float,
-    val altitudeMeters: Double,
-    val speedMetersPerSecond: Float,
-    val provider: String,
-    val timestamp: Long,
-)
-
 object CollectedDataRepository {
     private const val MAX_ITEMS = 100
+    private const val GEOCODE_REUSE_DISTANCE_METERS = 100f
     private val LATEST_HEALTH_LOOKBACK = Duration.ofDays(30)
     private val consentedExerciseRoutes = ConcurrentHashMap<String, ExerciseRoute>()
 
@@ -181,18 +175,124 @@ object CollectedDataRepository {
         }
     }
 
-    fun updateLocation(location: Location) {
-        _data.update {
-            it.copy(
-                location = LocationSnapshot(
-                    latitude = location.latitude,
-                    longitude = location.longitude,
-                    accuracyMeters = location.accuracy,
-                    altitudeMeters = location.altitude,
-                    speedMetersPerSecond = location.speed,
-                    provider = location.provider.orEmpty(),
-                    timestamp = location.time,
-                ),
+    fun updateLocation(location: Location): LocationSnapshot? {
+        val snapshot = LocationDataCollector.fromLocation(location) ?: return null
+        var accepted: LocationSnapshot? = null
+        _data.update { current ->
+            val existing = current.locationHistory.firstOrNull {
+                it.provider == snapshot.provider &&
+                    it.elapsedRealtimeNanos == snapshot.elapsedRealtimeNanos
+            }
+            val reusableAddress = existing?.address ?: current.location
+                ?.address
+                ?.takeIf { address ->
+                    LocationDataCollector.canReuseAddress(
+                        address,
+                        snapshot,
+                        GEOCODE_REUSE_DISTANCE_METERS,
+                    )
+                }
+            val candidate = snapshot.copy(address = reusableAddress)
+            val history = (listOf(candidate) + current.locationHistory)
+                .distinctBy { "${it.provider}:${it.elapsedRealtimeNanos}" }
+                .sortedByDescending(LocationSnapshot::elapsedRealtimeNanos)
+                .take(MAX_ITEMS)
+            val latest = if (LocationDataCollector.shouldReplace(current.location, candidate)) {
+                accepted = candidate
+                candidate
+            } else {
+                current.location
+            }
+            current.copy(location = latest, locationHistory = history)
+        }
+        return accepted
+    }
+
+    fun updateLocationAddress(address: LocationAddressSnapshot) {
+        _data.update { current ->
+            val latest = current.location?.let { location ->
+                val sameFix = location.elapsedRealtimeNanos ==
+                    address.sourceLocationElapsedRealtimeNanos &&
+                    location.provider == address.sourceProvider
+                val nearby = LocationDataCollector.canReuseAddress(
+                    address,
+                    location,
+                    GEOCODE_REUSE_DISTANCE_METERS,
+                )
+                if (sameFix || nearby) {
+                    location.copy(address = address)
+                } else {
+                    location
+                }
+            }
+            current.copy(
+                location = latest,
+                locationHistory = current.locationHistory.map { location ->
+                    if (
+                        location.elapsedRealtimeNanos == address.sourceLocationElapsedRealtimeNanos &&
+                        location.provider == address.sourceProvider
+                    ) {
+                        location.copy(address = address)
+                    } else {
+                        location
+                    }
+                },
+            )
+        }
+    }
+
+    fun updateLocationStatus(status: LocationStatusSnapshot) {
+        _data.update { it.copy(locationStatus = status) }
+    }
+
+    fun updateGnssStatus(status: GnssSnapshot) {
+        _data.update { it.copy(gnss = status) }
+    }
+
+    fun updateGnssRunning(running: Boolean) {
+        _data.update { current ->
+            val now = System.currentTimeMillis()
+            val elapsedRealtimeNanos = android.os.SystemClock.elapsedRealtimeNanos()
+            current.copy(
+                gnss = if (running) {
+                    GnssSnapshot(
+                        running = true,
+                        timeToFirstFixMillis = null,
+                        reportedSatelliteCount = 0,
+                        satellitesTruncated = false,
+                        satellites = emptyList(),
+                        capturedAt = now,
+                        capturedAtElapsedRealtimeNanos = elapsedRealtimeNanos,
+                    )
+                } else {
+                    current.gnss?.copy(running = false) ?: GnssSnapshot(
+                        running = false,
+                        timeToFirstFixMillis = null,
+                        reportedSatelliteCount = 0,
+                        satellitesTruncated = false,
+                        satellites = emptyList(),
+                        capturedAt = now,
+                        capturedAtElapsedRealtimeNanos = elapsedRealtimeNanos,
+                    )
+                },
+            )
+        }
+    }
+
+    fun updateGnssTimeToFirstFix(timeToFirstFixMillis: Int) {
+        _data.update { current ->
+            current.copy(
+                gnss = current.gnss?.copy(timeToFirstFixMillis = timeToFirstFixMillis)
+                    ?: GnssSnapshot(
+                        running = true,
+                        timeToFirstFixMillis = timeToFirstFixMillis,
+                        reportedSatelliteCount = 0,
+                        satellitesTruncated = false,
+                        satellites = emptyList(),
+                        capturedAt = System.currentTimeMillis(),
+                        capturedAtElapsedRealtimeNanos =
+                            android.os.SystemClock.elapsedRealtimeNanos(),
+                    ),
             )
         }
     }
