@@ -44,6 +44,7 @@ class ConnectService : Service() {
     private var smsObserver: ContentObserver? = null
     private var locationListener: LocationListener? = null
     private var collectionJob: Job? = null
+    private var uploadJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -56,6 +57,7 @@ class ConnectService : Service() {
         registerSmsObserver()
         registerLocationUpdates()
         startPeriodicCollection()
+        startPeriodicUpload()
         scheduleWatchdog(this)
     }
 
@@ -211,8 +213,17 @@ class ConnectService : Service() {
         collectionJob = serviceScope.launch {
             while (isActive) {
                 CollectedDataRepository.refresh(applicationContext)
-                DataUploader.upload(applicationContext, CollectedDataRepository.data.value)
                 delay(COLLECTION_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun startPeriodicUpload() {
+        if (uploadJob != null) return
+        uploadJob = serviceScope.launch {
+            while (isActive) {
+                delay(UPLOAD_INTERVAL_MS)
+                DataUploader.upload(applicationContext, CollectedDataRepository.data.value)
             }
         }
     }
@@ -255,6 +266,7 @@ class ConnectService : Service() {
         private const val WATCHDOG_REQUEST_CODE = 1002
         private const val WATCHDOG_INTERVAL_MS = 10 * 60 * 1000L
         private const val COLLECTION_INTERVAL_MS = 5 * 60 * 1000L
+        private const val UPLOAD_INTERVAL_MS = 60 * 1000L
         private const val LOCATION_INTERVAL_MS = 60 * 1000L
         private const val LOCATION_MIN_DISTANCE_METERS = 25f
         private const val PREFERENCES_NAME = "connect_service"

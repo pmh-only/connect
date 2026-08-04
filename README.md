@@ -12,7 +12,7 @@ After the user grants access, Connect collects the following data locally:
 - Current battery percentage, charging state, temperature, and power source.
 - Latest location coordinates, accuracy, altitude, speed, provider, and timestamp.
 
-Collection snapshots are held in application process memory and rebuilt from currently accessible sources after restart. When a collection endpoint and token are configured in the app, the complete snapshot is uploaded immediately and every five minutes.
+Collection snapshots are held in application process memory and rebuilt from currently accessible sources after restart. When a collection endpoint and token are configured in the app, the complete snapshot is uploaded immediately and every minute.
 
 ## Go server
 
