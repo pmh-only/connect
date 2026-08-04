@@ -7,35 +7,191 @@
   <meta http-equiv="refresh" content="60">
   <title>Connect Dashboard</title>
   <style>
-    :root { color-scheme: dark; --bg:#07111f; --surface:#101d2f; --line:#26364c; --text:#f1f5f9; --muted:#9aabc0; --accent:#5eead4; --green:#34d399; }
-    * { box-sizing: border-box; }
-    body { margin:0; background:radial-gradient(circle at 20% 0,#0b3032 0,transparent 35%),var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
-    header,main { width:min(1200px,calc(100% - 32px)); margin:auto; }
-    header { display:flex; align-items:center; justify-content:space-between; padding:28px 0 20px; border-bottom:1px solid var(--line); }
-    h1,h2,h3,p { margin-top:0; } h1 { margin-bottom:4px; font-size:28px; } h2 { margin-bottom:4px; font-size:20px; }
-    .eyebrow { color:var(--accent); font-size:12px; font-weight:800; letter-spacing:.18em; }
-    .muted { color:var(--muted); } button { background:transparent; border:1px solid var(--line); border-radius:10px; color:var(--text); padding:9px 13px; cursor:pointer; }
-    main { padding:24px 0 64px; } .empty { padding:48px 24px; text-align:center; border:1px dashed var(--line); border-radius:18px; color:var(--muted); }
-    .device { margin-bottom:22px; padding:22px; background:color-mix(in srgb,var(--surface) 94%,transparent); border:1px solid var(--line); border-radius:20px; }
-    .device-head { display:flex; justify-content:space-between; gap:20px; align-items:start; } code { color:var(--accent); overflow-wrap:anywhere; }
-    .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:18px 0; }
-    .metric { padding:14px; border:1px solid var(--line); border-radius:14px; } .metric strong { display:block; margin-top:5px; color:var(--accent); font-size:18px; }
-    .tables { display:grid; grid-template-columns:1fr 1fr; gap:18px; } .table-wrap { overflow:auto; } table { width:100%; border-collapse:collapse; font-size:13px; }
-    th,td { padding:9px 8px; text-align:left; vertical-align:top; border-bottom:1px solid var(--line); } th { color:var(--muted); font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
-    .message { max-width:360px; white-space:pre-wrap; overflow-wrap:anywhere; } .status { color:var(--green); }
-    @media(max-width:760px){ .tables{grid-template-columns:1fr}.device-head{display:block}header{align-items:flex-start} }
+    :root {
+      color-scheme: dark;
+      --background:#141119;
+      --surface:#211b29;
+      --surface-high:#2b2433;
+      --outline:#4a434f;
+      --text:#f3edf7;
+      --muted:#c9c0d0;
+      --primary:#d6b9ff;
+      --on-primary:#32105e;
+      --primary-container:#4d287a;
+      --secondary:#c7f36b;
+      --on-secondary:#203600;
+      --secondary-container:#344d08;
+      --tertiary:#ffb59c;
+      --tertiary-container:#73351f;
+      --motion:cubic-bezier(.2,0,0,1);
+    }
+    * { box-sizing:border-box; }
+    body {
+      min-height:100vh;
+      margin:0;
+      overflow-x:hidden;
+      background:var(--background);
+      color:var(--text);
+      font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+    }
+    body::before,body::after {
+      position:fixed;
+      z-index:-1;
+      width:42vw;
+      aspect-ratio:1;
+      border-radius:50%;
+      filter:blur(3px);
+      content:"";
+      pointer-events:none;
+    }
+    body::before { top:-24vw; right:-12vw; background:color-mix(in srgb,var(--primary) 11%,transparent); }
+    body::after { top:54vh; left:-28vw; background:color-mix(in srgb,var(--tertiary) 8%,transparent); }
+    header,main { width:min(1240px,calc(100% - 32px)); margin-inline:auto; }
+    header {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:24px;
+      margin-top:18px;
+      padding:18px 20px;
+      background:color-mix(in srgb,var(--surface) 94%,transparent);
+      border-radius:28px 28px 10px 28px;
+      box-shadow:0 4px 18px #0004;
+    }
+    h1,h2,h3,p { margin-top:0; }
+    h1 { margin:0; font-size:clamp(24px,4vw,38px); line-height:1.06; letter-spacing:-.04em; }
+    h2 { margin:0 0 4px; font-size:clamp(22px,3vw,30px); line-height:1.15; letter-spacing:-.025em; }
+    h3 { margin-bottom:14px; font-size:18px; }
+    .brand { display:flex; align-items:center; gap:14px; min-width:0; }
+    .brand-mark {
+      display:grid;
+      flex:0 0 48px;
+      height:48px;
+      place-items:center;
+      border-radius:17px 17px 17px 6px;
+      background:var(--primary);
+      color:var(--on-primary);
+      font-size:22px;
+      font-weight:950;
+    }
+    .eyebrow { color:var(--primary); font-size:11px; font-weight:850; letter-spacing:.16em; text-transform:uppercase; }
+    .muted { color:var(--muted); }
+    .account { margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    button {
+      min-height:48px;
+      padding:0 20px;
+      border:1px solid color-mix(in srgb,var(--primary) 55%,transparent);
+      border-radius:24px;
+      background:transparent;
+      color:var(--primary);
+      font:inherit;
+      font-weight:750;
+      cursor:pointer;
+      transition:transform 240ms var(--motion),border-radius 350ms var(--motion),background 240ms var(--motion);
+    }
+    button:hover { transform:translateY(-2px); border-radius:15px 24px 24px 24px; background:color-mix(in srgb,var(--primary) 11%,transparent); }
+    button:active { transform:scale(.97); }
+    button:focus-visible { outline:3px solid var(--primary); outline-offset:3px; }
+    main { padding:18px 0 72px; }
+    .empty {
+      padding:72px 24px;
+      text-align:center;
+      border-radius:42px 16px 42px 42px;
+      background:var(--surface);
+      color:var(--muted);
+      font-size:18px;
+    }
+    .device {
+      margin-bottom:18px;
+      padding:clamp(18px,3vw,28px);
+      background:color-mix(in srgb,var(--surface) 96%,transparent);
+      border-radius:42px 16px 42px 42px;
+      box-shadow:0 4px 18px #0003;
+      transition:transform 420ms var(--motion),border-radius 420ms var(--motion),box-shadow 420ms var(--motion);
+    }
+    .device:hover { transform:translateY(-3px); border-radius:30px 30px 42px 30px; box-shadow:0 10px 30px #0005; }
+    .device-head { display:flex; justify-content:space-between; gap:24px; align-items:flex-start; }
+    .device-title { display:flex; align-items:center; gap:14px; min-width:0; }
+    .device-symbol {
+      display:grid;
+      flex:0 0 52px;
+      height:52px;
+      place-items:center;
+      border-radius:19px 19px 6px 19px;
+      background:color-mix(in srgb,var(--primary) 16%,transparent);
+      color:var(--primary);
+      font-size:19px;
+      font-weight:900;
+    }
+    code { color:var(--primary); font-size:12px; overflow-wrap:anywhere; }
+    .received {
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 12px;
+      border-radius:999px;
+      background:color-mix(in srgb,var(--secondary) 14%,transparent);
+      color:var(--secondary);
+      font-size:12px;
+      font-weight:750;
+      white-space:nowrap;
+    }
+    .received::before { width:8px; height:8px; border-radius:50%; background:var(--secondary); content:""; animation:pulse 1.6s var(--motion) infinite; }
+    .received time { color:color-mix(in srgb,var(--secondary) 75%,var(--muted)); font-weight:500; }
+    .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:22px 0; }
+    .metric {
+      min-height:104px;
+      padding:16px;
+      border-radius:24px 24px 8px 24px;
+      background:var(--surface-high);
+      transition:transform 280ms var(--motion),border-radius 350ms var(--motion),background 280ms var(--motion);
+    }
+    .metric:hover { transform:translateY(-3px) rotate(-.35deg); border-radius:10px 26px 26px 26px; background:color-mix(in srgb,var(--primary-container) 42%,var(--surface-high)); }
+    .metric:nth-child(3n+2):hover { background:color-mix(in srgb,var(--secondary-container) 58%,var(--surface-high)); }
+    .metric:nth-child(3n):hover { background:color-mix(in srgb,var(--tertiary-container) 58%,var(--surface-high)); }
+    .metric strong { display:block; margin-top:8px; color:var(--primary); font-size:19px; line-height:1.2; overflow-wrap:anywhere; }
+    .metric:nth-child(3n+2) strong { color:var(--secondary); }
+    .metric:nth-child(3n) strong { color:var(--tertiary); }
+    .tables { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .table-wrap { min-width:0; padding:18px; overflow:auto; border-radius:26px 10px 26px 26px; background:var(--surface-high); }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th,td { padding:11px 9px; text-align:left; vertical-align:top; border-bottom:1px solid var(--outline); }
+    th { color:var(--muted); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
+    tbody tr { transition:background 180ms var(--motion); }
+    tbody tr:hover { background:color-mix(in srgb,var(--primary) 7%,transparent); }
+    tbody tr:last-child td { border-bottom:0; }
+    .message { max-width:360px; white-space:pre-wrap; overflow-wrap:anywhere; }
+    @keyframes pulse { 50% { transform:scale(1.6); box-shadow:0 0 0 6px color-mix(in srgb,var(--secondary) 0%,transparent); } }
+    @media(max-width:760px) {
+      header { align-items:center; padding:14px; }
+      .brand-mark { flex-basis:42px; height:42px; }
+      .account { max-width:52vw; }
+      button { width:48px; padding:0; font-size:0; }
+      button::after { content:"Exit"; font-size:12px; }
+      .tables { grid-template-columns:1fr; }
+      .device-head { display:block; }
+      .received { width:max-content; margin:14px 0 0 66px; white-space:normal; }
+      .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    }
+    @media(max-width:420px) {
+      header,main { width:min(100% - 20px,1240px); }
+      .metrics { grid-template-columns:1fr; }
+      .device-title { align-items:flex-start; }
+      .received { margin-left:0; }
+    }
+    @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; } }
   </style>
 </head>
 <body>
 <header>
-  <div><div class="eyebrow">CONNECT</div><h1>Device telemetry</h1><div class="muted">Signed in as {{if .User.Name}}{{.User.Name}}{{else}}{{.User.Email}}{{end}}</div></div>
+  <div class="brand"><div class="brand-mark" aria-hidden="true">C</div><div><div class="eyebrow">Connect</div><h1>Device telemetry</h1><div class="muted account">Signed in as {{if .User.Name}}{{.User.Name}}{{else}}{{.User.Email}}{{end}}</div></div></div>
   <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button type="submit">Sign out</button></form>
 </header>
 <main>
 {{if .Devices}}
   {{range .Devices}}
   <section class="device">
-    <div class="device-head"><div><div class="eyebrow">DEVICE</div><h2>{{if .DeviceName}}{{.DeviceName}}{{else}}Unnamed Android device{{end}}</h2><code>{{.DeviceID}}</code></div><div class="muted"><span class="status">Received</span><br>{{timestamp .ReceivedAt}}</div></div>
+    <div class="device-head"><div class="device-title"><div class="device-symbol" aria-hidden="true">D</div><div><div class="eyebrow">Device</div><h2>{{if .DeviceName}}{{.DeviceName}}{{else}}Unnamed Android device{{end}}</h2><code>{{.DeviceID}}</code></div></div><div class="received">Received <time>{{timestamp .ReceivedAt}}</time></div></div>
     <div class="metrics">
       <div class="metric"><span class="muted">Battery</span><strong>{{with .Battery}}{{.LevelPercent}}%{{if .Charging}} charging{{end}}{{else}}No data{{end}}</strong></div>
       <div class="metric"><span class="muted">Steps today</span><strong>{{with .Health}}{{.Steps}}{{else}}No data{{end}}</strong></div>
