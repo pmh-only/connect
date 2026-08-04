@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"connect/server/internal/auth"
 	"connect/server/internal/model"
 	"connect/server/internal/store"
 )
@@ -129,25 +132,104 @@ func TestDashboardRendersNullableHealthSummaryAndCompleteness(t *testing.T) {
 	steps := int64(0)
 	exerciseSessions := 1
 	exerciseMinutes := int64(30)
+	devices := []model.Collection{{
+		DeviceID:           "phone-1",
+		TruncatedForUpload: true,
+		Health: &model.HealthSnapshot{
+			Steps:              &steps,
+			ExerciseSessions:   &exerciseSessions,
+			ExerciseMinutes:    &exerciseMinutes,
+			GrantedRecordTypes: []string{"StepsRecord"},
+		},
+	}}
 	var response bytes.Buffer
-	err = server.template.ExecuteTemplate(&response, "dashboard.html", dashboardData{
-		Devices: []model.Collection{{
-			DeviceID:           "phone-1",
-			TruncatedForUpload: true,
-			Health: &model.HealthSnapshot{
-				Steps:              &steps,
-				ExerciseSessions:   &exerciseSessions,
-				ExerciseMinutes:    &exerciseMinutes,
-				GrantedRecordTypes: []string{"StepsRecord"},
-			},
-		}},
-	})
+	err = server.template.ExecuteTemplate(&response, "dashboard.html", buildDashboardData(
+		auth.User{}, "", "health", "/health", devices, url.Values{},
+	))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(response.String(), "1 sessions, 30 min") ||
-		!strings.Contains(response.String(), "Compacted for upload") {
+	if !strings.Contains(response.String(), "30 min") {
 		t.Fatalf("dashboard missing health values: %s", response.String())
+	}
+	response.Reset()
+	err = server.template.ExecuteTemplate(&response, "dashboard.html", buildDashboardData(
+		auth.User{}, "", "devices", "/devices", devices, url.Values{},
+	))
+	if err != nil || !strings.Contains(response.String(), "Compacted") {
+		t.Fatalf("dashboard missing completeness state: %v: %s", err, response.String())
+	}
+}
+
+func TestDashboardRendersEveryWorkspace(t *testing.T) {
+	server, err := New(nil, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	accuracy := 5.0
+	devices := []model.Collection{{
+		DeviceID: "phone-1", DeviceName: "Phone", CollectedAt: now - 1000, ReceivedAt: now,
+		Battery: &model.BatterySnapshot{LevelPercent: 82},
+		Health: &model.HealthSnapshot{Records: []model.HealthRecordSnapshot{{
+			ID: "steps-1", RecordType: "StepsRecord", StartTime: now - 2000,
+			LastModifiedTime: now - 1000, DataOrigin: "health.app", Data: json.RawMessage(`{"count":1200}`),
+		}}},
+		Location:    &model.LocationSnapshot{Latitude: 37.5, Longitude: 127, AccuracyMeters: &accuracy, Provider: "gps", Timestamp: now},
+		SMSMessages: []model.SMSSnapshot{{ID: 1, Address: "Sender", Body: "Message", Timestamp: now}},
+		GNSS:        &model.GNSSSnapshot{ReportedSatelliteCount: 1, Satellites: []model.GNSSSatelliteSnapshot{{ConstellationType: 1, SVID: 7, CN0DBHz: 35}}},
+	}}
+	pages := []struct {
+		name, path, heading string
+	}{
+		{"overview", "/", "Command overview"},
+		{"health", "/health", "Health intelligence"},
+		{"location", "/location", "Location &amp; GNSS"},
+		{"communications", "/communications", "Communications"},
+		{"devices", "/devices", "Device operations"},
+	}
+	for _, page := range pages {
+		t.Run(page.name, func(t *testing.T) {
+			var response bytes.Buffer
+			data := buildDashboardData(auth.User{Name: "Operator"}, "token", page.name, page.path, devices, url.Values{})
+			if err := server.template.ExecuteTemplate(&response, "dashboard.html", data); err != nil {
+				t.Fatal(err)
+			}
+			output := response.String()
+			if !strings.Contains(output, page.heading) || strings.Contains(output, "ZgotmplZ") || strings.Contains(output, "&lt;no value&gt;") {
+				t.Fatalf("invalid %s workspace output", page.name)
+			}
+		})
+	}
+}
+
+func TestDashboardViewsApplyCategoryFilters(t *testing.T) {
+	now := time.Now().UnixMilli()
+	precise, approximate := 5.0, 75.0
+	device := model.Collection{
+		DeviceID: "phone-1",
+		Health: &model.HealthSnapshot{Records: []model.HealthRecordSnapshot{
+			{RecordType: "StepsRecord", DataOrigin: "fitness.app", StartTime: now, Data: json.RawMessage(`{"count":5000}`)},
+			{RecordType: "WeightRecord", DataOrigin: "scale.app", StartTime: now - 1, Data: json.RawMessage(`{"kilograms":72}`)},
+		}},
+		LocationHistory: []model.LocationSnapshot{
+			{Latitude: 1, Longitude: 1, Provider: "gps", AccuracyMeters: &precise, Timestamp: now},
+			{Latitude: 2, Longitude: 2, Provider: "network", AccuracyMeters: &approximate, Timestamp: now - 1},
+		},
+		SMSMessages:   []model.SMSSnapshot{{Address: "Alice", Body: "Status update", Timestamp: now}},
+		Notifications: []model.NotificationSnapshot{{PackageName: "mail.app", Title: "Status update", Timestamp: now}},
+	}
+	health := buildHealthView(&device, url.Values{"type": []string{"WeightRecord"}, "q": []string{"scale"}})
+	if len(health.Records) != 1 || health.Records[0].Type != "WeightRecord" {
+		t.Fatalf("health filters returned %#v", health.Records)
+	}
+	location := buildLocationView(&device, url.Values{"quality": []string{"precise"}})
+	if len(location.History) != 1 || location.History[0].Provider != "gps" {
+		t.Fatalf("location filters returned %#v", location.History)
+	}
+	communications := buildCommunicationsView(&device, url.Values{"channel": []string{"sms"}, "q": []string{"alice"}})
+	if len(communications.Events) != 1 || communications.Events[0].Channel != "SMS" {
+		t.Fatalf("communication filters returned %#v", communications.Events)
 	}
 }
 

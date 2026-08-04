@@ -6,11 +6,11 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -31,15 +31,11 @@ type Server struct {
 	template     *template.Template
 }
 
-type dashboardData struct {
-	User      auth.User
-	CSRFToken string
-	Devices   []model.Collection
-}
-
 func New(dataStore *store.Store, collectToken string, oidcAuth *auth.Auth) (*Server, error) {
 	parsed, err := template.New("dashboard.html").Funcs(template.FuncMap{
 		"timestamp": formatTimestamp,
+		"relative":  formatRelativeTime,
+		"initials":  initials,
 	}).ParseFS(templates, "templates/*.html")
 	if err != nil {
 		return nil, err
@@ -109,36 +105,38 @@ func (s *Server) rejectCollection(w http.ResponseWriter, r *http.Request, reason
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	page, ok := dashboardPage(r.URL.Path)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	user, csrfToken, ok := s.auth.Current(r)
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
 	devices := s.store.List()
-	for index := range devices {
-		if len(devices[index].SMSMessages) > 20 {
-			devices[index].SMSMessages = devices[index].SMSMessages[:20]
-		}
-		if len(devices[index].Notifications) > 20 {
-			devices[index].Notifications = devices[index].Notifications[:20]
-		}
-		locations := append([]model.LocationSnapshot(nil), devices[index].LocationHistory...)
-		sort.Slice(locations, func(left, right int) bool {
-			if locations[left].ElapsedRealtimeNanos != locations[right].ElapsedRealtimeNanos {
-				return locations[left].ElapsedRealtimeNanos > locations[right].ElapsedRealtimeNanos
-			}
-			return locations[left].Timestamp > locations[right].Timestamp
-		})
-		if len(locations) > 20 {
-			locations = locations[:20]
-		}
-		devices[index].LocationHistory = locations
-	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.template.ExecuteTemplate(w, "dashboard.html", dashboardData{
-		User: user, CSRFToken: csrfToken, Devices: devices,
-	}); err != nil {
+	data := buildDashboardData(user, csrfToken, page, r.URL.Path, devices, r.URL.Query())
+	if err := s.template.ExecuteTemplate(w, "dashboard.html", data); err != nil {
 		http.Error(w, "could not render dashboard", http.StatusInternalServerError)
+	}
+}
+
+func dashboardPage(path string) (string, bool) {
+	switch path {
+	case "/":
+		return "overview", true
+	case "/health":
+		return "health", true
+	case "/location":
+		return "location", true
+	case "/communications":
+		return "communications", true
+	case "/devices":
+		return "devices", true
+	default:
+		return "", false
 	}
 }
 
@@ -259,6 +257,26 @@ func formatTimestamp(milliseconds int64) string {
 		return "unknown"
 	}
 	return time.UnixMilli(milliseconds).Format("2006-01-02 15:04:05 MST")
+}
+
+func formatRelativeTime(milliseconds int64) string {
+	if milliseconds <= 0 {
+		return "Unknown"
+	}
+	difference := time.Since(time.UnixMilli(milliseconds))
+	if difference < 0 {
+		difference = 0
+	}
+	switch {
+	case difference < time.Minute:
+		return "Just now"
+	case difference < time.Hour:
+		return fmt.Sprintf("%d min ago", int(difference.Minutes()))
+	case difference < 24*time.Hour:
+		return fmt.Sprintf("%d hr ago", int(difference.Hours()))
+	default:
+		return fmt.Sprintf("%d days ago", int(difference.Hours()/24))
+	}
 }
 
 func securityHeaders(next http.Handler) http.Handler {
