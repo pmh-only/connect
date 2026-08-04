@@ -22,6 +22,11 @@
     <string name="notification_access">Android notifications</string>
     <string name="location_access">Background location</string>
     <string name="local_collection">LOCAL COLLECTION</string>
+    <string name="server_upload">SERVER UPLOAD</string>
+    <string name="collection_endpoint">Collection endpoint URL</string>
+    <string name="collection_endpoint_example">https://server.example/api/collect</string>
+    <string name="authorization_token">Authorization token</string>
+    <string name="save_upload_settings">Save and upload now</string>
     <string name="health_activity">Health activity</string>
     <string name="sms_messages">SMS messages</string>
     <string name="android_notifications">Notifications</string>

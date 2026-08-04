@@ -62,7 +62,10 @@ class ConnectService : Service() {
         promoteToForeground()
         registerSmsObserver()
         registerLocationUpdates()
-        serviceScope.launch { CollectedDataRepository.refresh(applicationContext) }
+        serviceScope.launch {
+            CollectedDataRepository.refresh(applicationContext)
+            DataUploader.upload(applicationContext, CollectedDataRepository.data.value)
+        }
         scheduleWatchdog(this)
         return START_STICKY
     }
@@ -207,6 +210,7 @@ class ConnectService : Service() {
         collectionJob = serviceScope.launch {
             while (isActive) {
                 CollectedDataRepository.refresh(applicationContext)
+                DataUploader.upload(applicationContext, CollectedDataRepository.data.value)
                 delay(COLLECTION_INTERVAL_MS)
             }
         }

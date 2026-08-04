@@ -1,0 +1,57 @@
+{{define "dashboard.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="60">
+  <title>Connect Dashboard</title>
+  <style>
+    :root { color-scheme: dark; --bg:#07111f; --surface:#101d2f; --line:#26364c; --text:#f1f5f9; --muted:#9aabc0; --accent:#5eead4; --green:#34d399; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:radial-gradient(circle at 20% 0,#0b3032 0,transparent 35%),var(--bg); color:var(--text); font:15px/1.45 system-ui,sans-serif; }
+    header,main { width:min(1200px,calc(100% - 32px)); margin:auto; }
+    header { display:flex; align-items:center; justify-content:space-between; padding:28px 0 20px; border-bottom:1px solid var(--line); }
+    h1,h2,h3,p { margin-top:0; } h1 { margin-bottom:4px; font-size:28px; } h2 { margin-bottom:4px; font-size:20px; }
+    .eyebrow { color:var(--accent); font-size:12px; font-weight:800; letter-spacing:.18em; }
+    .muted { color:var(--muted); } button { background:transparent; border:1px solid var(--line); border-radius:10px; color:var(--text); padding:9px 13px; cursor:pointer; }
+    main { padding:24px 0 64px; } .empty { padding:48px 24px; text-align:center; border:1px dashed var(--line); border-radius:18px; color:var(--muted); }
+    .device { margin-bottom:22px; padding:22px; background:color-mix(in srgb,var(--surface) 94%,transparent); border:1px solid var(--line); border-radius:20px; }
+    .device-head { display:flex; justify-content:space-between; gap:20px; align-items:start; } code { color:var(--accent); overflow-wrap:anywhere; }
+    .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:18px 0; }
+    .metric { padding:14px; border:1px solid var(--line); border-radius:14px; } .metric strong { display:block; margin-top:5px; color:var(--accent); font-size:18px; }
+    .tables { display:grid; grid-template-columns:1fr 1fr; gap:18px; } .table-wrap { overflow:auto; } table { width:100%; border-collapse:collapse; font-size:13px; }
+    th,td { padding:9px 8px; text-align:left; vertical-align:top; border-bottom:1px solid var(--line); } th { color:var(--muted); font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
+    .message { max-width:360px; white-space:pre-wrap; overflow-wrap:anywhere; } .status { color:var(--green); }
+    @media(max-width:760px){ .tables{grid-template-columns:1fr}.device-head{display:block}header{align-items:flex-start} }
+  </style>
+</head>
+<body>
+<header>
+  <div><div class="eyebrow">CONNECT</div><h1>Device telemetry</h1><div class="muted">Signed in as {{if .User.Name}}{{.User.Name}}{{else}}{{.User.Email}}{{end}}</div></div>
+  <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button type="submit">Sign out</button></form>
+</header>
+<main>
+{{if .Devices}}
+  {{range .Devices}}
+  <section class="device">
+    <div class="device-head"><div><div class="eyebrow">DEVICE</div><h2>{{if .DeviceName}}{{.DeviceName}}{{else}}Unnamed Android device{{end}}</h2><code>{{.DeviceID}}</code></div><div class="muted"><span class="status">Received</span><br>{{timestamp .ReceivedAt}}</div></div>
+    <div class="metrics">
+      <div class="metric"><span class="muted">Battery</span><strong>{{with .Battery}}{{.LevelPercent}}%{{if .Charging}} charging{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Steps today</span><strong>{{with .Health}}{{.Steps}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Distance</span><strong>{{with .Health}}{{printf "%.2f" .DistanceKilometers}} km{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Active calories</span><strong>{{with .Health}}{{printf "%.0f" .ActiveCalories}} kcal{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Location</span><strong>{{with .Location}}{{printf "%.5f" .Latitude}}, {{printf "%.5f" .Longitude}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Snapshot time</span><strong>{{timestamp .CollectedAt}}</strong></div>
+    </div>
+    <div class="tables">
+      <div class="table-wrap"><h3>Recent SMS</h3><table><thead><tr><th>Time</th><th>From</th><th>Message</th></tr></thead><tbody>{{range .SMSMessages}}<tr><td>{{timestamp .Timestamp}}</td><td>{{.Address}}</td><td class="message">{{.Body}}</td></tr>{{else}}<tr><td colspan="3" class="muted">No SMS collected</td></tr>{{end}}</tbody></table></div>
+      <div class="table-wrap"><h3>Recent notifications</h3><table><thead><tr><th>Time</th><th>App</th><th>Content</th></tr></thead><tbody>{{range .Notifications}}<tr><td>{{timestamp .Timestamp}}</td><td>{{.PackageName}}</td><td class="message"><strong>{{.Title}}</strong><br>{{.Text}}</td></tr>{{else}}<tr><td colspan="3" class="muted">No notifications collected</td></tr>{{end}}</tbody></table></div>
+    </div>
+  </section>
+  {{end}}
+{{else}}<div class="empty">No device snapshots have been received yet.</div>{{end}}
+</main>
+</body>
+</html>
+{{end}}

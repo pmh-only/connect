@@ -12,7 +12,39 @@ After the user grants access, Connect collects the following data locally:
 - Current battery percentage, charging state, temperature, and power source.
 - Latest location coordinates, accuracy, altitude, speed, provider, and timestamp.
 
-Collection snapshots are held only in application process memory. The app does not contain a backend, network permission, upload logic, or persistent database. Data is cleared when the process is destroyed and rebuilt from currently accessible sources after restart.
+Collection snapshots are held in application process memory and rebuilt from currently accessible sources after restart. When a collection endpoint and token are configured in the app, the complete snapshot is uploaded immediately and every five minutes.
+
+## Go server
+
+The Go 1.25+ server in `server/` exposes two independently bound services:
+
+- `WEB_ADDR` defaults to `:8080` and serves `POST /api/collect`, the OIDC-protected dashboard at `/`, and `/healthz`.
+- `MCP_ADDR` defaults to `:8081` and serves the bearer-protected MCP endpoint at `/mcp` plus `/healthz`.
+
+Submissions are appended to the JSON Lines file configured by `DATA_FILE`. The dashboard and MCP tools use the latest submission for each device. The MCP tools are `list_devices` and `get_latest_device_data`.
+
+Copy `server/.env.example` to `server/.env`, configure an OIDC client with the exact callback URL in `OIDC_REDIRECT_URL`, and export the values before starting:
+
+```bash
+cd server
+set -a
+source .env
+set +a
+go run ./cmd/connect-server
+```
+
+Required settings are `COLLECT_TOKEN`, `MCP_TOKEN`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, and `OIDC_REDIRECT_URL`. `OIDC_CLIENT_SECRET` is optional for public clients. Generate independent random bearer tokens, for example with `openssl rand -hex 32`.
+
+Configure the Android app with the full collection URL, such as `https://connect.example.com/api/collect`, and the value of `COLLECT_TOKEN`. The token is encrypted by Android Keystore. HTTP endpoints are accepted for local sideload testing, but they expose health, message, notification, and location data in transit; use HTTPS outside a trusted development network.
+
+An MCP client must connect to the MCP port with an authorization header:
+
+```text
+URL: https://connect.example.com:8081/mcp
+Authorization: Bearer <MCP_TOKEN>
+```
+
+The MCP endpoint implements JSON-RPC Streamable HTTP initialization and tools for protocol version `2025-11-25`. Browser-origin requests are rejected unless their exact origins are listed in the comma-separated `MCP_ALLOWED_ORIGINS` setting.
 
 ## Background behavior
 

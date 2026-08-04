@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -40,6 +41,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.Typography
@@ -47,6 +49,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +63,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -101,17 +106,30 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         ConnectService.start(this)
+        val uploadConfig = UploadConfigStore.load(this)
 
         setContent {
             val isRunning by ConnectService.isRunning.collectAsStateWithLifecycle()
             val collectedData by CollectedDataRepository.data.collectAsStateWithLifecycle()
+            val uploadStatus by DataUploader.status.collectAsStateWithLifecycle()
             ConnectTheme {
                 ConnectScreen(
                     isRunning = isRunning,
                     collectedData = collectedData,
                     accessState = accessState,
+                    initialUploadConfig = uploadConfig,
+                    uploadStatus = uploadStatus,
                     onEnsureRunning = { ConnectService.start(this) },
                     onGrantAccess = { requestAllAccess() },
+                    onSaveUploadConfig = { endpoint, token ->
+                        UploadConfigStore.save(this, endpoint, token).fold(
+                            onSuccess = {
+                                ConnectService.start(this)
+                                null
+                            },
+                            onFailure = { it.message ?: "Could not save upload settings" },
+                        )
+                    },
                 )
             }
         }
@@ -349,8 +367,11 @@ private fun ConnectScreen(
     isRunning: Boolean,
     collectedData: CollectedData,
     accessState: AccessState,
+    initialUploadConfig: UploadConfig,
+    uploadStatus: UploadStatus,
     onEnsureRunning: () -> Unit,
     onGrantAccess: () -> Unit,
+    onSaveUploadConfig: (String, String) -> String?,
 ) {
     val allAccessReady = accessState.batteryExempt &&
         accessState.exactAlarmAccess &&
@@ -414,6 +435,12 @@ private fun ConnectScreen(
             DataAccessCard(accessState)
             Spacer(Modifier.height(12.dp))
             CollectionSummaryCard(collectedData)
+            Spacer(Modifier.height(12.dp))
+            UploadSettingsCard(
+                initialConfig = initialUploadConfig,
+                uploadStatus = uploadStatus,
+                onSave = onSaveUploadConfig,
+            )
             Spacer(Modifier.height(16.dp))
 
             Button(
@@ -461,6 +488,78 @@ private fun ConnectScreen(
                 fontSize = 12.sp,
                 lineHeight = 17.sp,
                 textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+@Composable
+private fun UploadSettingsCard(
+    initialConfig: UploadConfig,
+    uploadStatus: UploadStatus,
+    onSave: (String, String) -> String?,
+) {
+    var endpoint by remember { mutableStateOf(initialConfig.endpoint) }
+    var token by remember { mutableStateOf(initialConfig.token) }
+    var validationError by remember { mutableStateOf<String?>(null) }
+    val statusColor = when (uploadStatus.state) {
+        UploadState.SUCCESS -> Active
+        UploadState.ERROR -> Waiting
+        UploadState.UPLOADING -> Teal
+        UploadState.NOT_CONFIGURED -> MutedSlate
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceBlue.copy(alpha = 0.72f)),
+        border = CardDefaults.outlinedCardBorder(),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 17.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.server_upload),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+            )
+            OutlinedTextField(
+                value = endpoint,
+                onValueChange = { endpoint = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.collection_endpoint)) },
+                placeholder = { Text(stringResource(R.string.collection_endpoint_example)) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                singleLine = true,
+            )
+            OutlinedTextField(
+                value = token,
+                onValueChange = { token = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.authorization_token)) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+            )
+            Button(
+                onClick = { validationError = onSave(endpoint, token) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = DeepTeal,
+                    contentColor = Mist,
+                ),
+            ) {
+                Text(stringResource(R.string.save_upload_settings))
+            }
+            Text(
+                text = validationError ?: uploadStatus.message,
+                color = if (validationError != null) Waiting else statusColor,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
             )
         }
     }
@@ -787,8 +886,17 @@ private fun ConnectScreenPreview() {
                 notificationAccess = true,
                 locationAccess = true,
             ),
+            initialUploadConfig = UploadConfig(
+                endpoint = "https://connect.example/api/collect",
+                token = "secret",
+            ),
+            uploadStatus = UploadStatus(
+                state = UploadState.SUCCESS,
+                message = "Last upload succeeded",
+            ),
             onEnsureRunning = {},
             onGrantAccess = {},
+            onSaveUploadConfig = { _, _ -> null },
         )
     }
 }

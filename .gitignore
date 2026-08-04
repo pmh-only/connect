@@ -7,3 +7,6 @@ app/build/
 captures/
 .externalNativeBuild/
 .cxx/
+server/.env
+server/connect-server
+server/data/
