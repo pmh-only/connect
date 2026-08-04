@@ -25,7 +25,7 @@
     <string name="data_access">Data access</string>
     <string name="data_access_supporting">Authorized Android sources</string>
     <string name="sms_access">SMS messages</string>
-    <string name="health_connect_access">Health Connect activity</string>
+    <string name="health_connect_access">Health Connect health data</string>
     <string name="health_connect_unavailable">Health Connect unavailable</string>
     <string name="notification_access">Android notifications</string>
     <string name="location_access">Background location</string>
@@ -38,14 +38,18 @@
     <string name="authorization_token">Authorization token</string>
     <string name="save_upload_settings">Save and upload now</string>
     <string name="health_activity">Health activity</string>
+    <plurals name="health_collection_summary">
+        <item quantity="one">%1$d step, %2$d records, %3$d/%4$d types</item>
+        <item quantity="other">%1$d steps, %2$d records, %3$d/%4$d types</item>
+    </plurals>
+    <plurals name="health_collection_summary_without_steps">
+        <item quantity="one">%1$d record, %2$d/%3$d types</item>
+        <item quantity="other">%1$d records, %2$d/%3$d types</item>
+    </plurals>
     <string name="sms_messages">SMS messages</string>
     <string name="android_notifications">Notifications</string>
     <string name="battery_status">Battery</string>
     <string name="location_status">Location</string>
-    <plurals name="steps_summary">
-        <item quantity="one">%1$d step today</item>
-        <item quantity="other">%1$d steps today</item>
-    </plurals>
     <plurals name="items_recent">
         <item quantity="one">%1$d recent</item>
         <item quantity="other">%1$d recent</item>

@@ -6,13 +6,33 @@ Connect is a Kotlin Android application with a Jetpack Compose Material 3 UI and
 
 After the user grants access, Connect collects the following data locally:
 
-- Health Connect steps, distance, active calories, and exercise sessions for the current day.
+- Health Connect daily summaries plus structured records for all 41 record classes exposed by the
+  AndroidX Health Connect 1.1.0 client. This includes activity, body measurements, cycle tracking,
+  nutrition, sleep, mindfulness, exercise plans and routes, vitals, and high-frequency samples.
+- All 12 personal medical-record categories and their FHIR JSON when the device supports the
+  Personal Health Record feature and the user grants those category permissions.
 - Up to 100 recent SMS messages, including sender, body, type, and timestamp.
 - Up to 100 recent Android notifications, including source package, title, text, and timestamp.
 - Current battery percentage, charging state, temperature, and power source.
 - Latest location coordinates, accuracy, altitude, speed, provider, and timestamp.
 
 Collection snapshots are held in application process memory and rebuilt from currently accessible sources after restart. When a collection endpoint and token are configured in the app, the complete snapshot is uploaded immediately and every minute.
+
+Detailed health collection is bounded to the three latest records of each supported type and 100
+nested samples, stages, segments, laps, or route points per record. Planned exercises are bounded to
+10 blocks, 10 steps per block, and 10 targets per step. Without Health Connect history access,
+records are read from the last 30 days; with history access, the latest records can come from the
+full available history. Planned exercises also include the next 30 days. Medical resources are
+bounded to three per category and their FHIR JSON to 8,192 characters.
+Medical snapshots indicate when their FHIR JSON was truncated. Failed per-type reads are reported
+and retain that type's last successful in-memory value instead of replacing it with empty data.
+Feature-gated record types are requested only when the installed Health Connect version supports
+them. Exercise routes from other applications trigger Health Connect's separate foreground consent
+flow; denied or unavailable routes remain represented by their route status.
+
+Uploads target 3.75 MiB so they remain below the server's 4 MiB request limit. In the exceptional
+case that a snapshot is larger, the oldest messages, notifications, medical resources, and detailed
+health records are removed in that order and the upload is marked `truncatedForUpload`.
 
 ## Go server
 

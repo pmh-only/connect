@@ -142,6 +142,26 @@ func validateCollection(collection *model.Collection) error {
 	if len(collection.SMSMessages) > 100 || len(collection.Notifications) > 100 {
 		return errors.New("SMS and notification lists are limited to 100 entries")
 	}
+	if collection.Health != nil {
+		if len(collection.Health.Records) > 123 {
+			return errors.New("health records are limited to 123 entries")
+		}
+		if len(collection.Health.MedicalResources) > 36 {
+			return errors.New("medical resources are limited to 36 entries")
+		}
+		if len(collection.Health.SupportedRecordTypes) > 41 ||
+			len(collection.Health.GrantedRecordTypes) > 41 ||
+			len(collection.Health.FailedRecordTypes) > 41 {
+			return errors.New("health record type lists are limited to 41 entries")
+		}
+		if len(collection.Health.FailedMedicalResourceTypes) > 12 {
+			return errors.New("failed medical resource types are limited to 12 entries")
+		}
+		if len(collection.Health.SupportedMedicalResourceTypes) > 12 ||
+			len(collection.Health.GrantedMedicalResourceTypes) > 12 {
+			return errors.New("medical resource type lists are limited to 12 entries")
+		}
+	}
 	return nil
 }
 

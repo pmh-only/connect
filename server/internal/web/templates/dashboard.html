@@ -194,9 +194,22 @@
     <div class="device-head"><div class="device-title"><div class="device-symbol" aria-hidden="true">D</div><div><div class="eyebrow">Device</div><h2>{{if .DeviceName}}{{.DeviceName}}{{else}}Unnamed Android device{{end}}</h2><code>{{.DeviceID}}</code></div></div><div class="received">Received <time>{{timestamp .ReceivedAt}}</time></div></div>
     <div class="metrics">
       <div class="metric"><span class="muted">Battery</span><strong>{{with .Battery}}{{.LevelPercent}}%{{if .Charging}} charging{{end}}{{else}}No data{{end}}</strong></div>
-      <div class="metric"><span class="muted">Steps today</span><strong>{{with .Health}}{{.Steps}}{{else}}No data{{end}}</strong></div>
-      <div class="metric"><span class="muted">Distance</span><strong>{{with .Health}}{{printf "%.2f" .DistanceKilometers}} km{{else}}No data{{end}}</strong></div>
-      <div class="metric"><span class="muted">Active calories</span><strong>{{with .Health}}{{printf "%.0f" .ActiveCalories}} kcal{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Steps today</span><strong>{{with .Health}}{{with .Steps}}{{.}}{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Distance</span><strong>{{with .Health}}{{with .DistanceKilometers}}{{printf "%.2f" .}} km{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Active calories</span><strong>{{with .Health}}{{with .ActiveCalories}}{{printf "%.0f" .}} kcal{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Total calories</span><strong>{{with .Health}}{{with .TotalCalories}}{{printf "%.0f" .}} kcal{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Exercise</span><strong>{{with .Health}}{{$health := .}}{{with .ExerciseSessions}}{{.}} sessions{{with $health.ExerciseMinutes}}, {{.}} min{{end}}{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Sleep today</span><strong>{{with .Health}}{{with .SleepMinutes}}{{.}} min{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Average heart rate</span><strong>{{with .Health}}{{with .AverageHeartRateBPM}}{{.}} bpm{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Resting heart rate</span><strong>{{with .Health}}{{with .RestingHeartRateBPM}}{{.}} bpm{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Elevation gained</span><strong>{{with .Health}}{{with .ElevationGainedMeters}}{{printf "%.0f" .}} m{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Floors climbed</span><strong>{{with .Health}}{{with .FloorsClimbed}}{{printf "%.1f" .}}{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Latest weight</span><strong>{{with .Health}}{{with .WeightKilograms}}{{printf "%.1f" .}} kg{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Latest body fat</span><strong>{{with .Health}}{{with .BodyFatPercentage}}{{printf "%.1f" .}}%{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Latest blood oxygen</span><strong>{{with .Health}}{{with .OxygenSaturationPercentage}}{{printf "%.1f" .}}%{{else}}No data{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Health record types</span><strong>{{with .Health}}{{len .GrantedRecordTypes}} / {{len .SupportedRecordTypes}} standard, {{len .GrantedMedicalResourceTypes}} / {{len .SupportedMedicalResourceTypes}} medical{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Detailed health records</span><strong>{{with .Health}}{{len .Records}} records, {{len .MedicalResources}} medical{{if .FailedRecordTypes}}, {{len .FailedRecordTypes}} failed{{end}}{{else}}No data{{end}}</strong></div>
+      <div class="metric"><span class="muted">Snapshot completeness</span><strong>{{if .TruncatedForUpload}}Compacted for upload{{else}}{{with .Health}}{{if or .FailedRecordTypes .FailedMedicalResourceTypes}}{{len .FailedRecordTypes}} standard, {{len .FailedMedicalResourceTypes}} medical failed{{else}}Complete{{end}}{{else}}No data{{end}}{{end}}</strong></div>
       <div class="metric"><span class="muted">Location</span><strong>{{with .Location}}{{printf "%.5f" .Latitude}}, {{printf "%.5f" .Longitude}}{{else}}No data{{end}}</strong></div>
       <div class="metric"><span class="muted">Snapshot time</span><strong>{{timestamp .CollectedAt}}</strong></div>
     </div>

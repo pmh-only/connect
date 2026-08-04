@@ -31,6 +31,7 @@ object DataUploader {
     private const val READ_TIMEOUT_MS = 30_000
     private const val MAX_TEXT_LENGTH = 8_192
     private const val MAX_UPLOAD_ITEMS = 100
+    private const val MAX_PAYLOAD_BYTES = 3_750_000
 
     private val mutex = Mutex()
     private val _status = MutableStateFlow(UploadStatus())
@@ -63,7 +64,7 @@ object DataUploader {
     }
 
     private fun send(context: Context, config: UploadConfig, data: CollectedData) {
-        val payload = data.toJSON(context).toString().toByteArray(Charsets.UTF_8)
+        val payload = data.toJSON(context).toBoundedPayload()
         val connection = URL(config.endpoint).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
@@ -98,10 +99,83 @@ object DataUploader {
         put("collectedAt", System.currentTimeMillis())
         put("health", health?.let { snapshot ->
             JSONObject().apply {
-                put("steps", snapshot.steps)
-                put("distanceKilometers", snapshot.distanceKilometers)
-                put("activeCalories", snapshot.activeCalories)
-                put("exerciseSessions", snapshot.exerciseSessions)
+                put("steps", snapshot.steps ?: JSONObject.NULL)
+                put("distanceKilometers", snapshot.distanceKilometers ?: JSONObject.NULL)
+                put("activeCalories", snapshot.activeCalories ?: JSONObject.NULL)
+                put("exerciseSessions", snapshot.exerciseSessions ?: JSONObject.NULL)
+                put("totalCalories", snapshot.totalCalories ?: JSONObject.NULL)
+                put("elevationGainedMeters", snapshot.elevationGainedMeters ?: JSONObject.NULL)
+                put("floorsClimbed", snapshot.floorsClimbed ?: JSONObject.NULL)
+                put("exerciseMinutes", snapshot.exerciseMinutes ?: JSONObject.NULL)
+                put("sleepMinutes", snapshot.sleepMinutes ?: JSONObject.NULL)
+                put("averageHeartRateBpm", snapshot.averageHeartRateBpm ?: JSONObject.NULL)
+                put("minimumHeartRateBpm", snapshot.minimumHeartRateBpm ?: JSONObject.NULL)
+                put("maximumHeartRateBpm", snapshot.maximumHeartRateBpm ?: JSONObject.NULL)
+                put("restingHeartRateBpm", snapshot.restingHeartRateBpm ?: JSONObject.NULL)
+                put("weightKilograms", snapshot.weightKilograms ?: JSONObject.NULL)
+                put("bodyFatPercentage", snapshot.bodyFatPercentage ?: JSONObject.NULL)
+                put(
+                    "oxygenSaturationPercentage",
+                    snapshot.oxygenSaturationPercentage ?: JSONObject.NULL,
+                )
+                put("supportedRecordTypes", JSONArray(snapshot.supportedRecordTypes))
+                put("grantedRecordTypes", JSONArray(snapshot.grantedRecordTypes))
+                put(
+                    "supportedMedicalResourceTypes",
+                    JSONArray(snapshot.supportedMedicalResourceTypes),
+                )
+                put(
+                    "grantedMedicalResourceTypes",
+                    JSONArray(snapshot.grantedMedicalResourceTypes),
+                )
+                put("failedRecordTypes", JSONArray(snapshot.failedRecordTypes))
+                put(
+                    "failedMedicalResourceTypes",
+                    JSONArray(snapshot.failedMedicalResourceTypes),
+                )
+                put("records", JSONArray().apply {
+                    snapshot.records.forEach { record ->
+                        put(JSONObject().apply {
+                            put("id", record.id)
+                            put("recordType", record.recordType)
+                            put("startTime", record.startTime.toEpochMilli())
+                            put("endTime", record.endTime?.toEpochMilli() ?: JSONObject.NULL)
+                            put(
+                                "startZoneOffsetSeconds",
+                                record.startZoneOffsetSeconds ?: JSONObject.NULL,
+                            )
+                            put(
+                                "endZoneOffsetSeconds",
+                                record.endZoneOffsetSeconds ?: JSONObject.NULL,
+                            )
+                            put("lastModifiedTime", record.lastModifiedTime.toEpochMilli())
+                            put("dataOrigin", record.dataOrigin)
+                            put("recordingMethod", record.recordingMethod)
+                            put("clientRecordId", record.clientRecordId ?: JSONObject.NULL)
+                            put("clientRecordVersion", record.clientRecordVersion)
+                            put("deviceType", record.deviceType ?: JSONObject.NULL)
+                            put(
+                                "deviceManufacturer",
+                                record.deviceManufacturer ?: JSONObject.NULL,
+                            )
+                            put("deviceModel", record.deviceModel ?: JSONObject.NULL)
+                            put("data", record.data)
+                        })
+                    }
+                })
+                put("medicalResources", JSONArray().apply {
+                    snapshot.medicalResources.forEach { resource ->
+                        put(JSONObject().apply {
+                            put("medicalResourceType", resource.medicalResourceType)
+                            put("dataSourceId", resource.dataSourceId)
+                            put("fhirResourceType", resource.fhirResourceType)
+                            put("fhirResourceId", resource.fhirResourceId)
+                            put("fhirVersion", resource.fhirVersion)
+                            put("fhirJson", resource.fhirJson)
+                            put("fhirJsonTruncated", resource.fhirJsonTruncated)
+                        })
+                    }
+                })
                 put("collectedAt", snapshot.collectedAt)
             }
         } ?: JSONObject.NULL)
@@ -146,5 +220,29 @@ object DataUploader {
                 put("timestamp", snapshot.timestamp)
             }
         } ?: JSONObject.NULL)
+    }
+
+    private fun JSONObject.toBoundedPayload(): ByteArray {
+        fun encode(): ByteArray = toString().toByteArray(Charsets.UTF_8)
+
+        var payload = encode()
+        if (payload.size <= MAX_PAYLOAD_BYTES) return payload
+
+        put("truncatedForUpload", true)
+        val health = optJSONObject("health")
+        val removableArrays = listOfNotNull(
+            optJSONArray("smsMessages"),
+            optJSONArray("notifications"),
+            health?.optJSONArray("medicalResources"),
+            health?.optJSONArray("records"),
+        )
+        removableArrays.forEach { values ->
+            while (values.length() > 0) {
+                values.remove(values.length() - 1)
+                payload = encode()
+                if (payload.size <= MAX_PAYLOAD_BYTES) return payload
+            }
+        }
+        throw IllegalStateException("Collection payload exceeds upload limit")
     }
 }

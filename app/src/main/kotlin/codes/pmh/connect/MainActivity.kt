@@ -90,11 +90,17 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.net.toUri
 import androidx.health.connect.client.PermissionController
+import androidx.health.connect.client.contracts.ExerciseRouteRequestContract
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 
+private const val STATE_EXERCISE_ROUTE_ID = "exerciseRouteId"
+private const val STATE_EXERCISE_ROUTE_QUEUE = "exerciseRouteQueue"
+
 class MainActivity : ComponentActivity() {
+    private val exerciseRouteQueue = ArrayDeque<String>()
+    private var currentExerciseRouteId: String? = null
     private val runtimePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { requestBackgroundLocationAccess() }
@@ -112,7 +118,18 @@ class MainActivity : ComponentActivity() {
     ) { requestHealthAccess() }
     private val healthPermissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract(),
-    ) { requestNotificationAccess() }
+    ) { requestExerciseRouteAccess() }
+    private val exerciseRouteLauncher = registerForActivityResult(
+        ExerciseRouteRequestContract(),
+    ) { route ->
+        if (route != null) {
+            currentExerciseRouteId?.let { recordId ->
+                CollectedDataRepository.updateExerciseRoute(recordId, route)
+            }
+        }
+        currentExerciseRouteId = null
+        requestNextExerciseRoute()
+    }
     private val notificationAccessLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { finishAccessFlow() }
@@ -122,6 +139,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        currentExerciseRouteId = savedInstanceState?.getString(STATE_EXERCISE_ROUTE_ID)
+        savedInstanceState
+            ?.getStringArrayList(STATE_EXERCISE_ROUTE_QUEUE)
+            ?.let(exerciseRouteQueue::addAll)
         enableEdgeToEdge()
         lastCrash = CrashLogStore.read(this)
         if (!ConnectService.isRunning.value) {
@@ -237,6 +258,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        currentExerciseRouteId?.let { outState.putString(STATE_EXERCISE_ROUTE_ID, it) }
+        outState.putStringArrayList(
+            STATE_EXERCISE_ROUTE_QUEUE,
+            ArrayList(exerciseRouteQueue),
+        )
+    }
+
     @SuppressLint("BatteryLife")
     private fun requestBatteryOptimizationExemption() {
         val powerManager = getSystemService(PowerManager::class.java)
@@ -296,10 +326,33 @@ class MainActivity : ComponentActivity() {
                 CollectedDataRepository.hasHealthPermissions(this@MainActivity)
             }.getOrDefault(false)
             if (hasPermissions) {
-                requestNotificationAccess()
+                requestExerciseRouteAccess()
             } else if (runCatching { healthPermissionLauncher.launch(required) }.isFailure) {
                 requestNotificationAccess()
             }
+        }
+    }
+
+    private fun requestExerciseRouteAccess() {
+        lifecycleScope.launch {
+            runCatching { CollectedDataRepository.refresh(this@MainActivity) }
+            exerciseRouteQueue.clear()
+            exerciseRouteQueue.addAll(CollectedDataRepository.exerciseRoutesRequiringConsent())
+            requestNextExerciseRoute()
+        }
+    }
+
+    private fun requestNextExerciseRoute() {
+        val recordId = exerciseRouteQueue.removeFirstOrNull()
+        if (recordId == null) {
+            requestNotificationAccess()
+            return
+        }
+
+        currentExerciseRouteId = recordId
+        if (runCatching { exerciseRouteLauncher.launch(recordId) }.isFailure) {
+            currentExerciseRouteId = null
+            requestNextExerciseRoute()
         }
     }
 
@@ -751,7 +804,22 @@ private fun DataAccessCard(accessState: AccessState) {
 @Composable
 private fun CollectionSummaryCard(data: CollectedData) {
     val healthSummary = data.health?.let {
-        pluralStringResource(R.plurals.steps_summary, it.steps.toInt(), it.steps)
+        it.steps?.let { steps ->
+            pluralStringResource(
+                R.plurals.health_collection_summary,
+                steps.toInt(),
+                steps,
+                it.records.size,
+                it.grantedRecordTypes.size,
+                it.supportedRecordTypes.size,
+            )
+        } ?: pluralStringResource(
+            R.plurals.health_collection_summary_without_steps,
+            it.records.size,
+            it.records.size,
+            it.grantedRecordTypes.size,
+            it.supportedRecordTypes.size,
+        )
     } ?: stringResource(R.string.waiting_for_data)
     val batterySummary = data.battery?.let {
         stringResource(
@@ -1485,7 +1553,17 @@ private fun ConnectScreenPreview() {
         ConnectScreen(
             isRunning = true,
             collectedData = CollectedData(
-                health = HealthSnapshot(8_421, 6.2, 412.0, 1, 0),
+                health = HealthSnapshot(
+                    steps = 8_421,
+                    distanceKilometers = 6.2,
+                    activeCalories = 412.0,
+                    exerciseSessions = 1,
+                    totalCalories = 1_830.0,
+                    sleepMinutes = 438,
+                    averageHeartRateBpm = 72,
+                    restingHeartRateBpm = 58,
+                    collectedAt = 0,
+                ),
                 smsMessages = listOf(SmsSnapshot(1, "Contact", "Message", 0, 1)),
                 notifications = listOf(NotificationSnapshot("1", "app", "Title", "Text", 0)),
                 battery = BatterySnapshot(78, true, 31.2, 1),
