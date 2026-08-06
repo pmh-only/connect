@@ -51,7 +51,7 @@ The Go 1.25+ server in `server/` exposes two independently bound services:
 - `WEB_ADDR` defaults to `:8080` and serves `POST /api/collect`, `/healthz`, and the OIDC-protected web UI. The web UI has dedicated Overview (`/`), Health (`/health`), Location and GNSS (`/location`), Communications (`/communications`), and Devices (`/devices`) workspaces.
 - `MCP_ADDR` defaults to `:8081` and serves the bearer-protected MCP endpoint at `/mcp` plus `/healthz`.
 
-Submissions are appended to the JSON Lines file configured by `DATA_FILE`. The dashboard and MCP tools use the latest submission for each device. The MCP tools are `list_devices` and `get_latest_device_data`.
+Submissions are appended to the JSON Lines file configured by `DATA_FILE`. The dashboard and MCP tools use the latest submission for each device. The MCP tools are `list_devices` plus one tool per data category: `get_health_data`, `get_sms_messages`, `get_notifications`, `get_battery_status`, `get_location`, `get_location_history`, `get_location_status`, and `get_gnss_data`.
 
 Copy `server/.env.example` to `server/.env`, configure an OIDC client with the exact callback URL in `OIDC_REDIRECT_URL`, and export the values before starting:
 

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"connect/server/internal/model"
 	"connect/server/internal/store"
 )
 
@@ -134,6 +135,60 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// deviceDataTools maps a tool name to a function that extracts the relevant
+// slice of the device's latest collection. The second return value reports
+// whether any data was present.
+var deviceDataTools = map[string]func(model.Collection) (any, bool){
+	"get_health_data": func(c model.Collection) (any, bool) {
+		if c.Health == nil {
+			return nil, false
+		}
+		return c.Health, true
+	},
+	"get_sms_messages": func(c model.Collection) (any, bool) {
+		if len(c.SMSMessages) == 0 {
+			return nil, false
+		}
+		return c.SMSMessages, true
+	},
+	"get_notifications": func(c model.Collection) (any, bool) {
+		if len(c.Notifications) == 0 {
+			return nil, false
+		}
+		return c.Notifications, true
+	},
+	"get_battery_status": func(c model.Collection) (any, bool) {
+		if c.Battery == nil {
+			return nil, false
+		}
+		return c.Battery, true
+	},
+	"get_location": func(c model.Collection) (any, bool) {
+		if c.Location == nil {
+			return nil, false
+		}
+		return c.Location, true
+	},
+	"get_location_history": func(c model.Collection) (any, bool) {
+		if len(c.LocationHistory) == 0 {
+			return nil, false
+		}
+		return c.LocationHistory, true
+	},
+	"get_location_status": func(c model.Collection) (any, bool) {
+		if c.LocationStatus == nil {
+			return nil, false
+		}
+		return c.LocationStatus, true
+	},
+	"get_gnss_data": func(c model.Collection) (any, bool) {
+		if c.GNSS == nil {
+			return nil, false
+		}
+		return c.GNSS, true
+	},
+}
+
 func (s *Server) callTool(w http.ResponseWriter, request request) {
 	var params struct {
 		Name      string          `json:"name"`
@@ -144,9 +199,7 @@ func (s *Server) callTool(w http.ResponseWriter, request request) {
 		return
 	}
 
-	var output any
-	switch params.Name {
-	case "list_devices":
+	if params.Name == "list_devices" {
 		collections := s.store.List()
 		devices := make([]map[string]any, 0, len(collections))
 		for _, collection := range collections {
@@ -159,35 +212,58 @@ func (s *Server) callTool(w http.ResponseWriter, request request) {
 				"notificationCount": len(collection.Notifications),
 			})
 		}
-		output = devices
-	case "get_latest_device_data":
-		var arguments struct {
-			DeviceID string `json:"device_id"`
-		}
-		if err := json.Unmarshal(params.Arguments, &arguments); err != nil || arguments.DeviceID == "" {
-			s.writeError(w, request.ID, -32602, "device_id is required")
-			return
-		}
-		collection, ok := s.store.Latest(arguments.DeviceID)
-		if !ok {
-			s.writeToolError(w, request.ID, "device not found")
-			return
-		}
-		output = collection
-	default:
+		s.writeToolResult(w, request.ID, devices)
+		return
+	}
+
+	extract, ok := deviceDataTools[params.Name]
+	if !ok {
 		s.writeError(w, request.ID, -32602, "Unknown tool: "+params.Name)
 		return
 	}
 
-	encoded, err := json.MarshalIndent(output, "", "  ")
-	if err != nil {
-		s.writeToolError(w, request.ID, "could not encode tool result")
+	var arguments struct {
+		DeviceID string `json:"device_id"`
+	}
+	if err := json.Unmarshal(params.Arguments, &arguments); err != nil || arguments.DeviceID == "" {
+		s.writeError(w, request.ID, -32602, "device_id is required")
 		return
 	}
-	s.writeResult(w, request.ID, map[string]any{
+	collection, ok := s.store.Latest(arguments.DeviceID)
+	if !ok {
+		s.writeToolError(w, request.ID, "device not found")
+		return
+	}
+
+	output, present := extract(collection)
+	if !present {
+		s.writeToolError(w, request.ID, "no data available")
+		return
+	}
+	s.writeToolResult(w, request.ID, output)
+}
+
+func (s *Server) writeToolResult(w http.ResponseWriter, id json.RawMessage, output any) {
+	encoded, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		s.writeToolError(w, id, "could not encode tool result")
+		return
+	}
+	s.writeResult(w, id, map[string]any{
 		"content": []map[string]string{{"type": "text", "text": string(encoded)}},
 		"isError": false,
 	})
+}
+
+func deviceIDInputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"device_id": map[string]string{"type": "string", "description": "Device ID returned by list_devices."},
+		},
+		"required":             []string{"device_id"},
+		"additionalProperties": false,
+	}
 }
 
 func tools() []map[string]any {
@@ -200,16 +276,44 @@ func tools() []map[string]any {
 			},
 		},
 		{
-			"name":        "get_latest_device_data",
-			"description": "Get the complete latest collected snapshot for one device.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"device_id": map[string]string{"type": "string", "description": "Device ID returned by list_devices."},
-				},
-				"required":             []string{"device_id"},
-				"additionalProperties": false,
-			},
+			"name":        "get_health_data",
+			"description": "Get the latest Health Connect snapshot for one device (steps, heart rate, sleep, records, etc.).",
+			"inputSchema": deviceIDInputSchema(),
+		},
+		{
+			"name":        "get_sms_messages",
+			"description": "Get the latest collected SMS messages for one device.",
+			"inputSchema": deviceIDInputSchema(),
+		},
+		{
+			"name":        "get_notifications",
+			"description": "Get the latest collected notifications for one device.",
+			"inputSchema": deviceIDInputSchema(),
+		},
+		{
+			"name":        "get_battery_status",
+			"description": "Get the latest battery status for one device.",
+			"inputSchema": deviceIDInputSchema(),
+		},
+		{
+			"name":        "get_location",
+			"description": "Get the latest single location fix for one device.",
+			"inputSchema": deviceIDInputSchema(),
+		},
+		{
+			"name":        "get_location_history",
+			"description": "Get the latest collected location history for one device.",
+			"inputSchema": deviceIDInputSchema(),
+		},
+		{
+			"name":        "get_location_status",
+			"description": "Get the latest location provider status (enabled providers, GNSS hardware) for one device.",
+			"inputSchema": deviceIDInputSchema(),
+		},
+		{
+			"name":        "get_gnss_data",
+			"description": "Get the latest raw GNSS satellite data for one device.",
+			"inputSchema": deviceIDInputSchema(),
 		},
 	}
 }
