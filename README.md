@@ -48,7 +48,7 @@ satellites, and address lines to five.
 
 The Go 1.25+ server in `server/` exposes two independently bound services:
 
-- `WEB_ADDR` defaults to `:8080` and serves `POST /api/collect`, `/healthz`, and the OIDC-protected web UI. The web UI has dedicated Overview (`/`), Health (`/health`), Location and GNSS (`/location`), Communications (`/communications`), and Devices (`/devices`) workspaces.
+- `WEB_ADDR` defaults to `:8080` and serves `POST /api/collect`, `/healthz`, the `rostack_v1` API, and the OIDC-protected web UI. The web UI has dedicated Overview (`/`), Health (`/health`), Location and GNSS (`/location`), Communications (`/communications`), and Devices (`/devices`) workspaces.
 - `MCP_ADDR` defaults to `:8081` and serves the bearer-protected MCP endpoint at `/mcp` plus `/healthz`.
 
 Submissions are appended to the JSON Lines file configured by `DATA_FILE`. The dashboard and MCP tools use the latest submission for each device. The MCP tools are `list_devices` plus one tool per data category: `get_health_data`, `get_sms_messages`, `get_notifications`, `get_battery_status`, `get_location`, `get_location_history`, `get_location_status`, and `get_gnss_data`.
@@ -63,7 +63,9 @@ set +a
 go run ./cmd/connect-server
 ```
 
-Required settings are `COLLECT_TOKEN`, `MCP_TOKEN`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, and `OIDC_REDIRECT_URL`. `OIDC_CLIENT_SECRET` is optional for public clients. Generate independent random bearer tokens, for example with `openssl rand -hex 32`.
+Required settings are `COLLECT_TOKEN`, `MCP_TOKEN`, `ROSTACK_BASE_URL`, `ROSTACK_TOKEN`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, and `OIDC_REDIRECT_URL`. `OIDC_CLIENT_SECRET` is optional for public clients. `ROSTACK_BASE_URL` is the public HTTPS origin of the web service; `ROSTACK_API_VERSION` defaults to `2026-08-13`. Generate independent random tokens, for example with `openssl rand -hex 32`.
+
+The public `GET /.well-known/rostack` document advertises the latest snapshot for each device as the read-only `devices` resource. HTTP clients authenticate with `Authorization: Rostack-Token <ROSTACK_TOKEN>`. WebSocket clients connect to the advertised gateway using the `rostack.v1` subprotocol, authenticate with the shared token as their first message, and can subscribe to `device.created` and `device.updated`. Collection snapshots include a resource-wide event cursor for gap-free subscription and replay.
 
 Configure the Android app with the full collection URL, such as `https://connect.example.com/api/collect`, and the value of `COLLECT_TOKEN`. The token is encrypted by Android Keystore. HTTP endpoints are accepted for local sideload testing, but they expose health, message, notification, and location data in transit; use HTTPS outside a trusted development network.
 

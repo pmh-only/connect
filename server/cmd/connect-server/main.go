@@ -14,6 +14,7 @@ import (
 
 	"connect/server/internal/auth"
 	"connect/server/internal/mcp"
+	"connect/server/internal/rostack"
 	"connect/server/internal/store"
 	"connect/server/internal/web"
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -32,6 +33,9 @@ type config struct {
 	oidcRedirectURL   string
 	tlsCertFile       string
 	tlsKeyFile        string
+	rostackBaseURL    string
+	rostackToken      string
+	rostackAPIVersion string
 }
 
 func main() {
@@ -64,7 +68,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	webHandler, err := web.New(dataStore, cfg.collectToken, oidcAuth)
+	rostackServer, err := rostack.New(dataStore, rostack.Config{
+		BaseURL: cfg.rostackBaseURL, Token: cfg.rostackToken, APIVersion: cfg.rostackAPIVersion,
+	})
+	if err != nil {
+		return fmt.Errorf("create rostack server: %w", err)
+	}
+	webHandler, err := web.New(dataStore, cfg.collectToken, oidcAuth, rostackServer)
 	if err != nil {
 		return fmt.Errorf("create web server: %w", err)
 	}
@@ -126,11 +136,15 @@ func loadConfig() (config, error) {
 		oidcRedirectURL:   os.Getenv("OIDC_REDIRECT_URL"),
 		tlsCertFile:       os.Getenv("TLS_CERT_FILE"),
 		tlsKeyFile:        os.Getenv("TLS_KEY_FILE"),
+		rostackBaseURL:    os.Getenv("ROSTACK_BASE_URL"),
+		rostackToken:      os.Getenv("ROSTACK_TOKEN"),
+		rostackAPIVersion: envOr("ROSTACK_API_VERSION", "2026-08-13"),
 	}
 	for name, value := range map[string]string{
 		"COLLECT_TOKEN": cfg.collectToken, "MCP_TOKEN": cfg.mcpToken,
 		"OIDC_ISSUER_URL": cfg.oidcIssuerURL, "OIDC_CLIENT_ID": cfg.oidcClientID,
 		"OIDC_REDIRECT_URL": cfg.oidcRedirectURL,
+		"ROSTACK_BASE_URL":  cfg.rostackBaseURL, "ROSTACK_TOKEN": cfg.rostackToken,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return config{}, fmt.Errorf("%s is required", name)

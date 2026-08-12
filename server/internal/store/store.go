@@ -17,9 +17,17 @@ import (
 const maxStoredLineBytes = 8 << 20
 
 type Store struct {
-	mu     sync.RWMutex
-	file   *os.File
-	latest map[string]model.Collection
+	mu       sync.RWMutex
+	file     *os.File
+	latest   map[string]model.Collection
+	events   []Event
+	watchers map[chan struct{}]struct{}
+}
+
+type Event struct {
+	Sequence   uint64
+	Collection model.Collection
+	Created    bool
 }
 
 func Open(path string) (*Store, error) {
@@ -34,7 +42,9 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open data file: %w", err)
 	}
-	store := &Store{file: file, latest: make(map[string]model.Collection)}
+	store := &Store{
+		file: file, latest: make(map[string]model.Collection), watchers: make(map[chan struct{}]struct{}),
+	}
 	if err := store.load(); err != nil {
 		file.Close()
 		return nil, err
@@ -59,6 +69,9 @@ func (s *Store) load() error {
 			continue
 		}
 		current, exists := s.latest[collection.DeviceID]
+		s.events = append(s.events, Event{
+			Sequence: uint64(len(s.events) + 1), Collection: collection, Created: !exists,
+		})
 		if !exists || collection.ReceivedAt >= current.ReceivedAt {
 			s.latest[collection.DeviceID] = collection
 		}
@@ -86,7 +99,17 @@ func (s *Store) Add(collection model.Collection) (model.Collection, error) {
 	if err := s.file.Sync(); err != nil {
 		return model.Collection{}, fmt.Errorf("sync collection: %w", err)
 	}
+	_, existed := s.latest[collection.DeviceID]
 	s.latest[collection.DeviceID] = collection
+	s.events = append(s.events, Event{
+		Sequence: uint64(len(s.events) + 1), Collection: collection, Created: !existed,
+	})
+	for watcher := range s.watchers {
+		select {
+		case watcher <- struct{}{}:
+		default:
+		}
+	}
 	return collection, nil
 }
 
@@ -109,6 +132,70 @@ func (s *Store) List() []model.Collection {
 		return collections[i].ReceivedAt > collections[j].ReceivedAt
 	})
 	return collections
+}
+
+func (s *Store) Snapshot() ([]model.Collection, uint64) {
+	s.mu.RLock()
+	boundary := uint64(len(s.events))
+	collections, _ := s.snapshotAtLocked(boundary)
+	s.mu.RUnlock()
+	sort.Slice(collections, func(i, j int) bool {
+		return collections[i].DeviceID < collections[j].DeviceID
+	})
+	return collections, boundary
+}
+
+func (s *Store) SnapshotAt(boundary uint64) ([]model.Collection, bool) {
+	s.mu.RLock()
+	collections, ok := s.snapshotAtLocked(boundary)
+	s.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	sort.Slice(collections, func(i, j int) bool {
+		return collections[i].DeviceID < collections[j].DeviceID
+	})
+	return collections, true
+}
+
+func (s *Store) snapshotAtLocked(boundary uint64) ([]model.Collection, bool) {
+	if boundary > uint64(len(s.events)) {
+		return nil, false
+	}
+	latest := make(map[string]model.Collection)
+	for _, event := range s.events[:boundary] {
+		current, exists := latest[event.Collection.DeviceID]
+		if !exists || event.Collection.ReceivedAt >= current.ReceivedAt {
+			latest[event.Collection.DeviceID] = event.Collection
+		}
+	}
+	collections := make([]model.Collection, 0, len(latest))
+	for _, collection := range latest {
+		collections = append(collections, collection)
+	}
+	return collections, true
+}
+
+func (s *Store) EventsAfter(sequence uint64) ([]Event, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if sequence > uint64(len(s.events)) {
+		return nil, false
+	}
+	events := append([]Event(nil), s.events[sequence:]...)
+	return events, true
+}
+
+func (s *Store) Subscribe() (<-chan struct{}, func()) {
+	watcher := make(chan struct{}, 1)
+	s.mu.Lock()
+	s.watchers[watcher] = struct{}{}
+	s.mu.Unlock()
+	return watcher, func() {
+		s.mu.Lock()
+		delete(s.watchers, watcher)
+		s.mu.Unlock()
+	}
 }
 
 func (s *Store) Close() error {

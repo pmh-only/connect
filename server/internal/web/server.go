@@ -16,6 +16,7 @@ import (
 
 	"connect/server/internal/auth"
 	"connect/server/internal/model"
+	"connect/server/internal/rostack"
 	"connect/server/internal/store"
 )
 
@@ -29,9 +30,10 @@ type Server struct {
 	collectToken string
 	auth         *auth.Auth
 	template     *template.Template
+	rostack      *rostack.Server
 }
 
-func New(dataStore *store.Store, collectToken string, oidcAuth *auth.Auth) (*Server, error) {
+func New(dataStore *store.Store, collectToken string, oidcAuth *auth.Auth, rostackServer ...*rostack.Server) (*Server, error) {
 	parsed, err := template.New("dashboard.html").Funcs(template.FuncMap{
 		"timestamp": formatTimestamp,
 		"relative":  formatRelativeTime,
@@ -40,7 +42,11 @@ func New(dataStore *store.Store, collectToken string, oidcAuth *auth.Auth) (*Ser
 	if err != nil {
 		return nil, err
 	}
-	return &Server{store: dataStore, collectToken: collectToken, auth: oidcAuth, template: parsed}, nil
+	server := &Server{store: dataStore, collectToken: collectToken, auth: oidcAuth, template: parsed}
+	if len(rostackServer) > 0 {
+		server.rostack = rostackServer[0]
+	}
+	return server, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -50,6 +56,9 @@ func (s *Server) Handler() http.Handler {
 		w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("POST /api/collect", s.collect)
+	if s.rostack != nil {
+		s.rostack.Register(mux)
+	}
 	mux.HandleFunc("GET /login", s.auth.Login)
 	mux.HandleFunc("GET /oidc/callback", s.auth.Callback)
 	mux.HandleFunc("POST /logout", s.auth.Logout)
