@@ -13,8 +13,35 @@ import (
 
 	"connect/server/internal/auth"
 	"connect/server/internal/model"
+	"connect/server/internal/rostack"
 	"connect/server/internal/store"
 )
+
+func TestHandlerRegistersRostackAndDashboardRoutes(t *testing.T) {
+	dataStore, err := store.Open(filepath.Join(t.TempDir(), "data.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	protocol, err := rostack.New(dataStore, rostack.Config{
+		BaseURL: "https://connect.example.com", Token: "rostack-secret", APIVersion: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(dataStore, "collect-secret", nil, protocol)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := server.Handler()
+	request := httptest.NewRequest(http.MethodPost, "/rostack/v1/devices", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusMethodNotAllowed || !strings.Contains(response.Body.String(), "method-not-allowed") {
+		t.Fatalf("unexpected rostack method response: %d: %s", response.Code, response.Body.String())
+	}
+}
 
 func TestCollectRequiresTokenAndStoresPayload(t *testing.T) {
 	dataStore, err := store.Open(filepath.Join(t.TempDir(), "data.jsonl"))

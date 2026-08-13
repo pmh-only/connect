@@ -62,7 +62,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /login", s.auth.Login)
 	mux.HandleFunc("GET /oidc/callback", s.auth.Callback)
 	mux.HandleFunc("POST /logout", s.auth.Logout)
-	mux.Handle("GET /", s.auth.Require(http.HandlerFunc(s.dashboard)))
+	dashboard := s.auth.Require(http.HandlerFunc(s.dashboard))
+	for _, pattern := range []string{"GET /{$}", "GET /health", "GET /location", "GET /communications", "GET /devices"} {
+		mux.Handle(pattern, dashboard)
+	}
 	return securityHeaders(mux)
 }
 
