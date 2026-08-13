@@ -138,7 +138,7 @@ func loadConfig() (config, error) {
 		tlsKeyFile:        os.Getenv("TLS_KEY_FILE"),
 		rostackBaseURL:    os.Getenv("ROSTACK_BASE_URL"),
 		rostackToken:      os.Getenv("ROSTACK_TOKEN"),
-		rostackAPIVersion: envOr("ROSTACK_API_VERSION", "2026-08-13"),
+		rostackAPIVersion: envOr("ROSTACK_API_VERSION", "2026-08-13.1"),
 	}
 	for name, value := range map[string]string{
 		"COLLECT_TOKEN": cfg.collectToken, "MCP_TOKEN": cfg.mcpToken,

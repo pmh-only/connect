@@ -84,15 +84,18 @@ func (s *Store) load() error {
 }
 
 func (s *Store) Add(collection model.Collection) (model.Collection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	collection.ReceivedAt = time.Now().UnixMilli()
+	if len(s.events) > 0 && collection.ReceivedAt <= s.events[len(s.events)-1].Collection.ReceivedAt {
+		collection.ReceivedAt = s.events[len(s.events)-1].Collection.ReceivedAt + 1
+	}
 	encoded, err := json.Marshal(collection)
 	if err != nil {
 		return model.Collection{}, fmt.Errorf("encode collection: %w", err)
 	}
 	encoded = append(encoded, '\n')
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if _, err := s.file.Write(encoded); err != nil {
 		return model.Collection{}, fmt.Errorf("append collection: %w", err)
 	}
