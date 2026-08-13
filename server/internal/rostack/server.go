@@ -15,16 +15,14 @@ import (
 	"strings"
 	"time"
 
-	"connect/server/internal/model"
 	"connect/server/internal/store"
 	"github.com/gorilla/websocket"
 )
 
 const (
 	protocolVersion = "rostack_v1"
-	resourceName    = "devices"
-	readPermission  = "devices:read"
-	subPermission   = "devices:subscribe"
+	readPermission  = "telemetry:read"
+	subPermission   = "telemetry:subscribe"
 	problemPrefix   = "https://spec.pmh.codes/problems/"
 )
 
@@ -66,12 +64,16 @@ func New(dataStore *store.Store, config Config) (*Server, error) {
 
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /.well-known/rostack", s.discovery)
-	mux.HandleFunc("GET /rostack/v1/schemas/device.json", s.deviceSchema)
-	mux.HandleFunc("GET /rostack/v1/devices", s.listDevices)
-	mux.HandleFunc("GET /rostack/v1/devices/{id}", s.getDevice)
+	for _, definition := range sortedResourceDefinitions() {
+		mux.HandleFunc("GET /rostack/v1/schemas/"+definition.name+".json", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusOK, resourceSchema(definition, s.endpoint("/rostack/v1/schemas/"+definition.name+".json")))
+		})
+	}
+	mux.HandleFunc("GET /rostack/v1/{resource}", s.listResource)
+	mux.HandleFunc("GET /rostack/v1/{resource}/{id}", s.getResource)
 	mux.HandleFunc("GET /rostack/v1/events", s.gateway)
-	mux.HandleFunc("/rostack/v1/devices", s.methodNotAllowed)
-	mux.HandleFunc("/rostack/v1/devices/{id}", s.methodNotAllowed)
+	mux.HandleFunc("/rostack/v1/{resource}", s.methodNotAllowed)
+	mux.HandleFunc("/rostack/v1/{resource}/{id}", s.methodNotAllowed)
 }
 
 func (s *Server) endpoint(path string) string {
@@ -88,6 +90,27 @@ func (s *Server) websocketEndpoint() string {
 }
 
 func (s *Server) discovery(w http.ResponseWriter, _ *http.Request) {
+	resources := make([]any, 0, len(resourceCatalog))
+	for _, definition := range sortedResourceDefinitions() {
+		schemaURL := s.endpoint("/rostack/v1/schemas/" + definition.name + ".json")
+		resources = append(resources, map[string]any{
+			"name": definition.name, "description": definition.description,
+			"collection_url":    s.endpoint("/rostack/v1/" + definition.name),
+			"item_url_template": s.itemURLTemplate(definition.name),
+			"representations": []any{map[string]any{
+				"media_type": "application/json", "schema_url": schemaURL,
+				"schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+			}},
+			"events": []any{
+				map[string]any{"name": definition.name + ".created", "schema_url": schemaURL, "schema_dialect": "https://json-schema.org/draft/2020-12/schema", "state_transition": "create", "tombstone": false},
+				map[string]any{"name": definition.name + ".updated", "schema_url": schemaURL, "schema_dialect": "https://json-schema.org/draft/2020-12/schema", "state_transition": "update", "tombstone": false},
+				map[string]any{"name": definition.name + ".deleted", "schema_url": schemaURL, "schema_dialect": "https://json-schema.org/draft/2020-12/schema", "state_transition": "delete", "tombstone": true},
+			},
+			"event_filtering":  false,
+			"filtering":        map[string]any{"filterable_fields": map[string]any{}, "sortable_fields": []string{}},
+			"read_permissions": []string{readPermission}, "subscribe_permissions": []string{subPermission},
+		})
+	}
 	document := map[string]any{
 		"protocol": map[string]any{"name": "rostack", "version": protocolVersion},
 		"implementation": map[string]any{
@@ -105,7 +128,7 @@ func (s *Server) discovery(w http.ResponseWriter, _ *http.Request) {
 				"type": "shared_token", "http_authorization_scheme": "Rostack-Token", "provisioning": "out_of_band",
 			}},
 			"permissions": map[string]any{
-				readPermission: "Read the latest device snapshots", subPermission: "Subscribe to device snapshot updates",
+				readPermission: "Read telemetry from all devices", subPermission: "Subscribe to telemetry updates",
 			},
 		},
 		"capabilities": map[string]any{
@@ -125,7 +148,7 @@ func (s *Server) discovery(w http.ResponseWriter, _ *http.Request) {
 				map[string]any{"type": problemPrefix + "invalid-fields", "operations": []string{"list", "get"}},
 				map[string]any{"type": problemPrefix + "invalid-cursor", "operations": []string{"list"}},
 				map[string]any{"type": problemPrefix + "authentication-required", "operations": []string{"list", "get"}},
-				map[string]any{"type": problemPrefix + "resource-not-found", "operations": []string{"get"}},
+				map[string]any{"type": problemPrefix + "resource-not-found", "operations": []string{"list", "get"}},
 				map[string]any{"type": problemPrefix + "method-not-allowed", "operations": []string{"list", "get"}},
 				map[string]any{"type": problemPrefix + "representation-not-acceptable", "operations": []string{"list", "get"}},
 			},
@@ -142,88 +165,40 @@ func (s *Server) discovery(w http.ResponseWriter, _ *http.Request) {
 				map[string]any{"code": "cursor_unavailable", "operations": []string{"subscribe", "subscription"}},
 			},
 		},
-		"resources": []any{map[string]any{
-			"name": resourceName, "description": "Latest collected snapshot for each Connect device.",
-			"collection_url":    s.endpoint("/rostack/v1/devices"),
-			"item_url_template": s.itemURLTemplate(),
-			"representations": []any{map[string]any{
-				"media_type": "application/json", "schema_url": s.endpoint("/rostack/v1/schemas/device.json"),
-				"schema_dialect": "https://json-schema.org/draft/2020-12/schema",
-			}},
-			"events": []any{
-				map[string]any{"name": "device.created", "schema_url": s.endpoint("/rostack/v1/schemas/device.json"), "schema_dialect": "https://json-schema.org/draft/2020-12/schema", "state_transition": "create", "tombstone": false},
-				map[string]any{"name": "device.updated", "schema_url": s.endpoint("/rostack/v1/schemas/device.json"), "schema_dialect": "https://json-schema.org/draft/2020-12/schema", "state_transition": "update", "tombstone": false},
-			},
-			"event_filtering":  false,
-			"filtering":        map[string]any{"filterable_fields": map[string]any{}, "sortable_fields": []string{}},
-			"read_permissions": []string{readPermission}, "subscribe_permissions": []string{subPermission},
-		}},
+		"resources": resources,
 	}
 	w.Header().Set("Cache-Control", "public, max-age=300")
 	w.Header().Set("ETag", fmt.Sprintf(`"rostack-%s"`, s.apiVersion))
 	writeJSON(w, http.StatusOK, document)
 }
 
-func (s *Server) deviceSchema(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"$schema": "https://json-schema.org/draft/2020-12/schema",
-		"$id":     s.endpoint("/rostack/v1/schemas/device.json"),
-		"title":   "Connect device snapshot", "type": "object", "required": []string{"deviceId", "deviceName", "collectedAt", "receivedAt", "truncatedForUpload"},
-		"properties": map[string]any{
-			"deviceId": map[string]any{"type": "string"}, "deviceName": map[string]any{"type": "string"},
-			"collectedAt": map[string]any{"type": "integer"}, "receivedAt": map[string]any{"type": "integer"},
-			"truncatedForUpload": map[string]any{"type": "boolean"},
-		},
-		"additionalProperties": false,
-	})
+func (s *Server) itemURLTemplate(resource string) string {
+	return strings.TrimSuffix(s.baseURL.String(), "/") + "/rostack/v1/" + resource + "/{id}"
 }
 
-func (s *Server) itemURLTemplate() string {
-	return strings.TrimSuffix(s.baseURL.String(), "/") + "/rostack/v1/devices/{id}"
+func (s *Server) itemURL(resource, id string) string {
+	return strings.Replace(s.itemURLTemplate(resource), "{id}", url.PathEscape(id), 1)
 }
 
-func (s *Server) itemURL(id string) string {
-	return strings.Replace(s.itemURLTemplate(), "{id}", url.PathEscape(id), 1)
-}
-
-type device struct {
-	DeviceID           string `json:"deviceId"`
-	DeviceName         string `json:"deviceName"`
-	CollectedAt        int64  `json:"collectedAt"`
-	ReceivedAt         int64  `json:"receivedAt"`
-	TruncatedForUpload bool   `json:"truncatedForUpload"`
-}
-
-func makeDevice(collection model.Collection) device {
-	return device{
-		DeviceID: collection.DeviceID, DeviceName: collection.DeviceName,
-		CollectedAt: collection.CollectedAt, ReceivedAt: collection.ReceivedAt,
-		TruncatedForUpload: collection.TruncatedForUpload,
+func (s *Server) listResource(w http.ResponseWriter, r *http.Request) {
+	definition, ok := resourceCatalog[r.PathValue("resource")]
+	if !ok {
+		s.problem(w, "resource-not-found", "resource is not advertised")
+		return
 	}
-}
-
-func devices(collections []model.Collection) []device {
-	result := make([]device, len(collections))
-	for index, collection := range collections {
-		result[index] = makeDevice(collection)
-	}
-	return result
-}
-
-func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	if !s.authorizeHTTP(w, r) {
 		return
 	}
 	if !acceptsJSON(r.Header.Get("Accept")) {
-		s.problem(w, "representation-not-acceptable", "devices are available as application/json")
+		s.problem(w, "representation-not-acceptable", "resource is available as application/json")
 		return
 	}
 	if r.URL.Query().Has("filter") {
-		s.problem(w, "unsupported-filter", "filtering is not supported for devices")
+		s.problem(w, "unsupported-filter", "filtering is not supported for this resource")
 		return
 	}
 	if r.URL.Query().Has("sort") {
-		s.problem(w, "invalid-sort", "sorting is not supported for devices")
+		s.problem(w, "invalid-sort", "sorting is not supported for this resource")
 		return
 	}
 	if r.URL.Query().Has("fields") {
@@ -245,20 +220,22 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = value
 	}
-	items, boundary := s.store.Snapshot()
+	collections, boundary := s.store.Snapshot()
+	items := resourceItems(definition, collections)
 	offset := 0
 	if raw := r.URL.Query().Get("cursor"); raw != "" {
 		var ok bool
-		boundary, offset, ok = s.parsePageCursor(raw, limit)
+		boundary, offset, ok = s.parsePageCursor(definition.name, raw, limit)
 		if !ok {
 			s.problem(w, "invalid-cursor", "cursor is not valid for this collection")
 			return
 		}
-		items, ok = s.store.SnapshotAt(boundary)
+		collections, ok = s.store.SnapshotAt(boundary)
 		if !ok {
 			s.problem(w, "invalid-cursor", "cursor is no longer available")
 			return
 		}
+		items = resourceItems(definition, collections)
 	}
 	if offset > len(items) {
 		s.problem(w, "invalid-cursor", "cursor is not valid for this collection")
@@ -267,21 +244,26 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	end := min(offset+limit, len(items))
 	var next any
 	if end < len(items) {
-		next = s.pageCursor(boundary, end, limit)
+		next = s.pageCursor(definition.name, boundary, end, limit)
 	}
 	s.successHeaders(w)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"items": devices(items[offset:end]),
-		"page":  map[string]any{"next_cursor": next, "has_more": end < len(items), "event_cursor": s.cursor(boundary)},
+		"items": items[offset:end],
+		"page":  map[string]any{"next_cursor": next, "has_more": end < len(items), "event_cursor": s.cursor(definition.name, boundary)},
 	})
 }
 
-func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
+func (s *Server) getResource(w http.ResponseWriter, r *http.Request) {
+	definition, ok := resourceCatalog[r.PathValue("resource")]
+	if !ok {
+		s.problem(w, "resource-not-found", "resource is not advertised")
+		return
+	}
 	if !s.authorizeHTTP(w, r) {
 		return
 	}
 	if !acceptsJSON(r.Header.Get("Accept")) {
-		s.problem(w, "representation-not-acceptable", "devices are available as application/json")
+		s.problem(w, "representation-not-acceptable", "resource is available as application/json")
 		return
 	}
 	if r.URL.Query().Has("fields") {
@@ -294,14 +276,19 @@ func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	device, ok := s.store.Latest(r.PathValue("id"))
+	collection, ok := s.store.Latest(r.PathValue("id"))
 	if !ok {
 		s.problem(w, "resource-not-found", "no device has the requested identifier")
 		return
 	}
+	item, present := definition.item(collection)
+	if !present {
+		s.problem(w, "resource-not-found", "device has no value for this resource")
+		return
+	}
 	s.successHeaders(w)
-	w.Header().Set("ETag", fmt.Sprintf(`"%d"`, device.ReceivedAt))
-	writeJSON(w, http.StatusOK, makeDevice(device))
+	w.Header().Set("ETag", fmt.Sprintf(`"%d"`, collection.ReceivedAt))
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (s *Server) authorizeHTTP(w http.ResponseWriter, r *http.Request) bool {
@@ -556,6 +543,7 @@ func jsonScalar(raw json.RawMessage) bool {
 
 type subscription struct {
 	id              string
+	resource        string
 	eventTypes      map[string]bool
 	sequence        uint64
 	requestedCursor string
@@ -730,7 +718,8 @@ func (s *Server) subscribe(connection *websocket.Conn, message clientMessage, su
 	if message.SubscriptionID == "" {
 		return s.writeError(connection, "invalid_message", "subscription_id is required", false, "")
 	}
-	if message.Resource != resourceName {
+	definition, advertised := resourceCatalog[message.Resource]
+	if !advertised {
 		return s.writeError(connection, "resource_not_found", "resource is not advertised", false, message.SubscriptionID)
 	}
 	if len(message.Filter) > 0 {
@@ -742,14 +731,18 @@ func (s *Server) subscribe(connection *websocket.Conn, message clientMessage, su
 	if message.EventEncoding != "" && message.EventEncoding != "json" {
 		return s.writeError(connection, "unsupported_encoding", "event encoding is not advertised", false, message.SubscriptionID)
 	}
-	eventTypes := map[string]bool{"device.created": true, "device.updated": true}
+	eventTypes := map[string]bool{
+		definition.name + ".created": true,
+		definition.name + ".updated": true,
+		definition.name + ".deleted": true,
+	}
 	if message.EventTypes != nil {
 		if len(*message.EventTypes) == 0 {
 			return s.writeError(connection, "invalid_message", "event_types must not be empty when present", false, "")
 		}
 		eventTypes = make(map[string]bool, len(*message.EventTypes))
 		for _, eventType := range *message.EventTypes {
-			if eventType != "device.created" && eventType != "device.updated" {
+			if eventType != definition.name+".created" && eventType != definition.name+".updated" && eventType != definition.name+".deleted" {
 				return s.writeError(connection, "unsupported_event_type", "event type is not advertised", false, message.SubscriptionID)
 			}
 			if eventTypes[eventType] {
@@ -759,7 +752,7 @@ func (s *Server) subscribe(connection *websocket.Conn, message clientMessage, su
 		}
 	}
 	if existing, exists := subscriptions[message.SubscriptionID]; exists {
-		if existing.requestedCursor == message.Cursor && equalEventTypes(existing.eventTypes, eventTypes) {
+		if existing.resource == definition.name && existing.requestedCursor == message.Cursor && equalEventTypes(existing.eventTypes, eventTypes) {
 			return s.write(connection, map[string]any{"type": "subscribed", "subscription_id": existing.id, "event_encoding": "json", "replaying": false})
 		}
 		return s.writeError(connection, "subscription_id_conflict", "subscription id is already active", false, message.SubscriptionID)
@@ -768,7 +761,7 @@ func (s *Server) subscribe(connection *websocket.Conn, message clientMessage, su
 	replaying := message.Cursor != ""
 	if replaying {
 		var cursorError string
-		sequence, cursorError = s.parseCursor(message.Cursor)
+		sequence, cursorError = s.parseCursor(definition.name, message.Cursor)
 		if cursorError != "" {
 			return s.writeError(connection, cursorError, "cursor cannot be used for this subscription", false, message.SubscriptionID)
 		}
@@ -778,7 +771,7 @@ func (s *Server) subscribe(connection *websocket.Conn, message clientMessage, su
 	} else {
 		_, sequence = s.store.Snapshot()
 	}
-	current := &subscription{id: message.SubscriptionID, eventTypes: eventTypes, sequence: sequence, requestedCursor: message.Cursor}
+	current := &subscription{id: message.SubscriptionID, resource: definition.name, eventTypes: eventTypes, sequence: sequence, requestedCursor: message.Cursor}
 	subscriptions[current.id] = current
 	if !s.write(connection, map[string]any{"type": "subscribed", "subscription_id": current.id, "event_encoding": "json", "replaying": replaying}) {
 		return false
@@ -798,21 +791,38 @@ func (s *Server) deliverAfter(connection *websocket.Conn, subscription *subscrip
 		return s.writeError(connection, "cursor_unavailable", "cursor is no longer available", false, subscription.id)
 	}
 	for _, event := range events {
-		eventType := "device.updated"
-		if event.Created {
-			eventType = "device.created"
-		}
 		subscription.sequence = event.Sequence
+		definition := resourceCatalog[subscription.resource]
+		item, present := definition.item(event.Collection)
+		_, previouslyPresent := definition.item(event.Previous)
+		if !event.HadPrevious {
+			previouslyPresent = false
+		}
+		if !present && !previouslyPresent {
+			continue
+		}
+		eventType := definition.name + ".updated"
+		if !previouslyPresent {
+			eventType = definition.name + ".created"
+		} else if !present {
+			eventType = definition.name + ".deleted"
+		}
 		if !subscription.eventTypes[eventType] {
 			continue
 		}
+		resourceVersion := event.Collection.ReceivedAt
+		if !present {
+			item, _ = definition.item(event.Previous)
+			resourceVersion = event.Previous.ReceivedAt
+		}
 		if !s.write(connection, map[string]any{
 			"type": "event", "subscription_id": subscription.id,
-			"event_id": fmt.Sprintf("connect-device-%d", event.Sequence), "cursor": s.cursor(event.Sequence),
+			"event_id": fmt.Sprintf("connect-%s-%d", definition.name, event.Sequence), "cursor": s.cursor(definition.name, event.Sequence),
 			"occurred_at": time.UnixMilli(event.Collection.ReceivedAt).UTC().Format(time.RFC3339Nano),
 			"event_type":  eventType, "resource_id": event.Collection.DeviceID,
-			"resource_version": strconv.FormatInt(event.Collection.ReceivedAt, 10),
-			"detail_url":       s.itemURL(event.Collection.DeviceID),
+			"resource_version": strconv.FormatInt(resourceVersion, 10),
+			"detail_url":       s.itemURL(definition.name, event.Collection.DeviceID),
+			"data":             item,
 		}) {
 			return false
 		}
@@ -820,23 +830,23 @@ func (s *Server) deliverAfter(connection *websocket.Conn, subscription *subscrip
 	return true
 }
 
-func (s *Server) cursor(sequence uint64) string {
-	payload := fmt.Sprintf("connect\n%s\n%s\n%s\n%d", s.apiVersion, resourceName, s.principalID, sequence)
+func (s *Server) cursor(resource string, sequence uint64) string {
+	payload := fmt.Sprintf("connect\n%s\n%s\n%s\n%d", s.apiVersion, resource, s.principalID, sequence)
 	return base64.RawURLEncoding.EncodeToString([]byte(payload))
 }
 
-func (s *Server) pageCursor(boundary uint64, offset, limit int) string {
-	payload := fmt.Sprintf("page\nconnect\n%s\n%s\n%d\n%d\n%d", s.apiVersion, resourceName, boundary, offset, limit)
+func (s *Server) pageCursor(resource string, boundary uint64, offset, limit int) string {
+	payload := fmt.Sprintf("page\nconnect\n%s\n%s\n%d\n%d\n%d", s.apiVersion, resource, boundary, offset, limit)
 	return base64.RawURLEncoding.EncodeToString([]byte(payload))
 }
 
-func (s *Server) parsePageCursor(cursor string, limit int) (uint64, int, bool) {
+func (s *Server) parsePageCursor(resource, cursor string, limit int) (uint64, int, bool) {
 	payload, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
 		return 0, 0, false
 	}
 	parts := strings.Split(string(payload), "\n")
-	if len(parts) != 7 || parts[0] != "page" || parts[1] != "connect" || parts[2] != s.apiVersion || parts[3] != resourceName || parts[6] != strconv.Itoa(limit) {
+	if len(parts) != 7 || parts[0] != "page" || parts[1] != "connect" || parts[2] != s.apiVersion || parts[3] != resource || parts[6] != strconv.Itoa(limit) {
 		return 0, 0, false
 	}
 	boundary, boundaryErr := strconv.ParseUint(parts[4], 10, 64)
@@ -844,7 +854,7 @@ func (s *Server) parsePageCursor(cursor string, limit int) (uint64, int, bool) {
 	return boundary, offset, boundaryErr == nil && offsetErr == nil && offset >= 0
 }
 
-func (s *Server) parseCursor(cursor string) (uint64, string) {
+func (s *Server) parseCursor(resource, cursor string) (uint64, string) {
 	payload, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
 		return 0, "cursor_unavailable"
@@ -857,7 +867,7 @@ func (s *Server) parseCursor(cursor string) (uint64, string) {
 	if err != nil {
 		return 0, "cursor_unavailable"
 	}
-	if parts[1] != s.apiVersion || parts[2] != resourceName || parts[3] != s.principalID {
+	if parts[1] != s.apiVersion || parts[2] != resource || parts[3] != s.principalID {
 		return 0, "cursor_scope_mismatch"
 	}
 	return sequence, ""

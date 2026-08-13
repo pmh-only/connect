@@ -25,9 +25,11 @@ type Store struct {
 }
 
 type Event struct {
-	Sequence   uint64
-	Collection model.Collection
-	Created    bool
+	Sequence    uint64
+	Collection  model.Collection
+	Previous    model.Collection
+	HadPrevious bool
+	Created     bool
 }
 
 func Open(path string) (*Store, error) {
@@ -70,7 +72,8 @@ func (s *Store) load() error {
 		}
 		current, exists := s.latest[collection.DeviceID]
 		s.events = append(s.events, Event{
-			Sequence: uint64(len(s.events) + 1), Collection: collection, Created: !exists,
+			Sequence: uint64(len(s.events) + 1), Collection: collection,
+			Previous: current, HadPrevious: exists, Created: !exists,
 		})
 		if !exists || collection.ReceivedAt >= current.ReceivedAt {
 			s.latest[collection.DeviceID] = collection
@@ -102,10 +105,11 @@ func (s *Store) Add(collection model.Collection) (model.Collection, error) {
 	if err := s.file.Sync(); err != nil {
 		return model.Collection{}, fmt.Errorf("sync collection: %w", err)
 	}
-	_, existed := s.latest[collection.DeviceID]
+	previous, existed := s.latest[collection.DeviceID]
 	s.latest[collection.DeviceID] = collection
 	s.events = append(s.events, Event{
-		Sequence: uint64(len(s.events) + 1), Collection: collection, Created: !existed,
+		Sequence: uint64(len(s.events) + 1), Collection: collection,
+		Previous: previous, HadPrevious: existed, Created: !existed,
 	})
 	for watcher := range s.watchers {
 		select {

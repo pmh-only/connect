@@ -63,9 +63,9 @@ set +a
 go run ./cmd/connect-server
 ```
 
-Required settings are `COLLECT_TOKEN`, `MCP_TOKEN`, `ROSTACK_BASE_URL`, `ROSTACK_TOKEN`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, and `OIDC_REDIRECT_URL`. `OIDC_CLIENT_SECRET` is optional for public clients. `ROSTACK_BASE_URL` is the public HTTPS origin of the web service; `ROSTACK_API_VERSION` defaults to `2026-08-13.1`. Generate independent random tokens, for example with `openssl rand -hex 32`.
+Required settings are `COLLECT_TOKEN`, `MCP_TOKEN`, `ROSTACK_BASE_URL`, `ROSTACK_TOKEN`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, and `OIDC_REDIRECT_URL`. `OIDC_CLIENT_SECRET` is optional for public clients. `ROSTACK_BASE_URL` is the public HTTPS origin of the web service; `ROSTACK_API_VERSION` defaults to `2026-08-13.2`. Generate independent random tokens, for example with `openssl rand -hex 32`.
 
-The public `GET /.well-known/rostack` document advertises the latest snapshot for each device as the read-only `devices` resource. HTTP clients authenticate with `Authorization: Rostack-Token <ROSTACK_TOKEN>`. WebSocket clients connect to the advertised gateway using the `rostack.v1` subprotocol, authenticate with the shared token as their first message, and can subscribe to `device.created` and `device.updated`. Collection snapshots include a resource-wide event cursor for gap-free subscription and replay.
+The public `GET /.well-known/rostack` document advertises one read-only resource for every collected metric and event category instead of a combined device object. Each resource contains the values reported by all devices and exposes typed `created`, `updated`, and `deleted` events. HTTP clients authenticate with `Authorization: Rostack-Token <ROSTACK_TOKEN>`. WebSocket clients connect to the advertised gateway using the `rostack.v1` subprotocol and authenticate with the shared token as their first message. Collection snapshots include a resource-wide event cursor for gap-free subscription and replay.
 
 Configure the Android app with the full collection URL, such as `https://connect.example.com/api/collect`, and the value of `COLLECT_TOKEN`. The token is encrypted by Android Keystore. HTTP endpoints are accepted for local sideload testing, but they expose health, message, notification, and location data in transit; use HTTPS outside a trusted development network.
 
